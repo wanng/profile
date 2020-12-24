@@ -6,7 +6,7 @@
             "addons": "https://raw.githubusercontent.com/wanng/profile/profile/rewrite.js"
         },
         {
-            "config": "12 28-30 9,19 * * ? https://raw.githubusercontent.com/wanng/profile/profile/do1/do1.js, tag=道一云签到/签退, img-url=touchid.system, enabled=true, img-url=k.circle.fill.system, tag=道一云保活, enabled=true",
+            "config": "12 28-30 9,19 * * ? https://raw.githubusercontent.com/wanng/profile/profile/do1/do1.js, tag=道一云签到/签退, img-url=touchid.system, enabled=true",
             "addons": "https://raw.githubusercontent.com/wanng/profile/profile/rewrite.js"
         }
     ],
