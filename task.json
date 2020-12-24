@@ -3,11 +3,11 @@
     "task": [
         {
             "config": "12 0/12 * * * ? https://raw.githubusercontent.com/wanng/profile/profile/do1/do1keepalive.js, tag=道一云保活, img-url=k.circle.fill.system, enabled=true",
-            "addons": "https://raw.githubusercontent.com/wanng/profile/profile/do1/do1rewrite.conf"
+            "addons": "https://raw.githubusercontent.com/wanng/profile/profile/do1/do1rewrite.conf, tag=道一云cookie"
         },
         {
             "config": "12 28-30 9,19 * * ? https://raw.githubusercontent.com/wanng/profile/profile/do1/do1.js, tag=道一云签到/签退, img-url=touchid.system, enabled=true",
-            "addons": "https://raw.githubusercontent.com/wanng/profile/profile/do1/do1rewrite.conf"
+            "addons": "https://raw.githubusercontent.com/wanng/profile/profile/do1/do1rewrite.conf, tag=道一云cookie"
         }
     ],
     "description": "道一云任务仓库"
