@@ -1,5 +1,5 @@
 {
-    "name": "task repo",
+    "name": "道一云",
     "task": [
         {
             "config": "12 0/12 * * * ? https://raw.githubusercontent.com/wanng/profile/profile/do1/do1keepalive.js, tag=道一云保活, img-url=k.circle.fill.system, enabled=true",
@@ -10,5 +10,5 @@
             "addons": "https://raw.githubusercontent.com/wanng/profile/profile/do1/do1rewrite.conf"
         }
     ],
-    "description": "任务仓库"
+    "description": "道一云任务仓库"
 }
