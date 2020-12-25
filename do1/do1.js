@@ -110,7 +110,6 @@ var Cookie = {
         var oldCookie = Store.get(cookieKey)
       
         if (!oldCookie || oldCookie != cookie) {
-          console.log("获取cookie:" + $request.url)
           var success = Store.put(cookieKey, cookie)
           $notify(success ? successTitle : failTitle, "", "")
           $done()
