@@ -110,6 +110,7 @@ var Cookie = {
         var oldCookie = Store.get(cookieKey)
       
         if (!oldCookie || oldCookie != cookie) {
+          console.log("访问:[" + $request.url + "]")
           var success = Store.put(cookieKey, cookie)
           $notify(success ? successTitle : failTitle, "", "")
           $done()
@@ -176,7 +177,7 @@ var Store = {
     },
 
     put: function (key, value) {
-        console.log("持久化:[" + key + ":" + value + "]")
+        console.log("保存:[" + key + ":" + value + "]")
         return $prefs.setValueForKey(value, key)
     }
 }
