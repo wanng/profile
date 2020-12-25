@@ -110,7 +110,7 @@ var Cookie = {
         var oldCookie = Store.get(cookieKey)
       
         if (!oldCookie || oldCookie != cookie) {
-          console.log("抓取cookie url:" + $request.url)
+          console.log("获取cookie:" + $request.url)
           var success = Store.put(cookieKey, cookie)
           $notify(success ? successTitle : failTitle, "", "")
           $done()
@@ -124,7 +124,7 @@ var Cookie = {
         if (!cookie) {
             return cookie
         }
-        return cookie.split(";").filter(s => s.indexOf(name) != -1)[0]
+        return cookie.split(";").map(s => s.trim()).filter(s => s.indexOf(name) != -1)[0]
     }
 }
 
@@ -177,7 +177,7 @@ var Store = {
     },
 
     put: function (key, value) {
-        console.log("put [" + key + ":" +value+"]")
+        console.log("持久化:[" + key + ":" + value + "]")
         return $prefs.setValueForKey(value, key)
     }
 }
