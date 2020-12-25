@@ -99,10 +99,9 @@ var Cookie = {
             return
         }
         
-        // 排序
-        var cookie = this.sort($request.headers['Cookie'])
+        var cookie = this.read($request.headers['Cookie'], "sessionToken")
   
-        if (cookie && cookie.indexOf("sessionToken") == -1) {
+        if (!cookie) {
             $notify(failTitle, "", "Cookie关键值缺失")
             $done()
             return
@@ -111,6 +110,7 @@ var Cookie = {
         var oldCookie = Store.get(cookieKey)
       
         if (!oldCookie || oldCookie != cookie) {
+          console.log("抓取cookie url:" + $request.url)
           var success = Store.put(cookieKey, cookie)
           $notify(success ? successTitle : failTitle, "", "")
           $done()
@@ -120,11 +120,11 @@ var Cookie = {
         $done()
     },
 
-    sort: function (cookie) {
+    read: function (cookie, name) {
         if (!cookie) {
             return cookie
         }
-        return cookie.split(";").sort().join(";")
+        return cookie.split(";").filter(s => s.indexOf(name) != -1)[0]
     }
 }
 
@@ -177,7 +177,7 @@ var Store = {
     },
 
     put: function (key, value) {
-        console.log("put [" + key + " : " +value+"]")
+        console.log("put [" + key + ":" +value+"]")
         return $prefs.setValueForKey(value, key)
     }
 }

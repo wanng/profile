@@ -1,4 +1,4 @@
-const do1Url = "https://qy.do1.com.cn/wxqyh/portal/checkWorkSignInCtrl/getDisplayWorkHour.do"
+const do1Url = "https://qy.do1.com.cn/wxqyh/portal/cooperationPortalCtl/continueSession.do"
 const do1Headers = {
     "Host": "qy.do1.com.cn",
     "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
