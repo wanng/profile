@@ -1,9 +1,10 @@
 const do1Url = "https://qy.do1.com.cn/wxqyh/portal/checkWorkSignInCtrl/addsignin.do"
 const do1Headers = {
     "Host": "qy.do1.com.cn",
+    "Origin": "https://qy.do1.com.cn",
     "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
     "Cookie": "",
-    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/7.0.18(0x17001231) NetType/4G Language/zh_CN",
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.2(0x1800022c) NetType/4G Language/zh_CN",
     "Referer": "https://qy.do1.com.cn/wxqyh/vp/module/checkwork.html?corp_id=wx53631950e42e0440&agentCode=checkwork"
 }
 
