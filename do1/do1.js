@@ -100,9 +100,9 @@ var Cookie = {
             return
         }
         
-        var cookie = this.read($request.headers['Cookie'], "sessionToken")
+        var cookie = $request.headers['Cookie']
   
-        if (!cookie) {
+        if (!cookie && cookie.indexOf("sessionToken") != -1) {
             $notify(failTitle, "", "Cookie关键值缺失")
             $done()
             return
@@ -119,13 +119,6 @@ var Cookie = {
         }
          
         $done()
-    },
-
-    read: function (cookie, name) {
-        if (!cookie) {
-            return cookie
-        }
-        return cookie.split(";").map(s => s.trim()).filter(s => s.indexOf(name) != -1)[0]
     }
 }
 
