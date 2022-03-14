@@ -53,6 +53,8 @@ function showmsg() {
   let succnt = 0
   let failcnt = 0
   for (info of signinfo) {
+    console.log("响应结果:")
+    console.log(info)
     const i = JSON.parse(info)
     if (i.retcode == 0) (signed += 1), (succnt += 1)
     else if (i.retcode == 1008) (signed += 1), (skiped += 1)
