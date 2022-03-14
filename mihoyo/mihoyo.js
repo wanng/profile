@@ -10,12 +10,26 @@ let bbslist = []
 sign()
 
 function sign() {
-  signbbs()
+  bbslist = [{
+    "id": 2,
+    "name": "原神",
+    "en_name": "ys",
+    "app_icon": "https://upload-bbs.mihoyo.com/game/ys/app_icon.png",
+    "icon": "https://upload-bbs.mihoyo.com/game/ys/icon.png",
+    "search_trend_word": "原神",
+    "level_image": "https://upload-bbs.mihoyo.com/game/ys/levelImage.png",
+    "level_text_color": "F3D8A8",
+    "topic_num": 1,
+    "op_name": "hk4e",
+    "main_color": "BDA575",
+    "has_wiki": true
+  }]
+  for (bbs of bbslist) signbbs(bbs)
   check()
 }
 
 function signbbs(bbs) {
-  const url = { url: `https://api-takumi.mihoyo.com/apihub/sapi/signIn?gids=2`, headers: JSON.parse(signheaderVal) }
+  const url = { url: `https://api-takumi.mihoyo.com/apihub/sapi/signIn?gids=${bbs.id}`, headers: JSON.parse(signheaderVal) }
   chavy.post(url, (error, response, data) => signinfo.push(data))
 }
 
