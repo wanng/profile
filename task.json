@@ -10,7 +10,7 @@
             "addons": "https://raw.githubusercontent.com/wanng/profile/profile/do1/do1rewrite.conf, tag=道一云cookie"
         },
         {
-            "config": "20 0/20 * * * ? https://raw.githubusercontent.com/wanng/profile/profile/mihoyo/mihoyo.js, tag=米游社签到, img-url=https://upload-bbs.mihoyo.com/game/ys/icon.png, enabled=true",
+            "config": "20 0/20 * * * ? https://raw.githubusercontent.com/wanng/profile/profile/mihoyo/mihoyo.js, tag=米游社签到, img-url=m.circle.fill.system, enabled=true",
             "addons": "https://raw.githubusercontent.com/wanng/profile/profile/mihoyo/mihoyorewrite.conf, tag=米游社cookie"
 
         }
