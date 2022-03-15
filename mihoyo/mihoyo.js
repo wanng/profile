@@ -19,7 +19,6 @@ sign()
 
 function sign() {
   signbbs()
-  check()
 }
 
 function signbbs(bbs) {
