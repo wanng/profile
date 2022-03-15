@@ -4,7 +4,6 @@ const signheaderKey = 'chavy_signheader_mihoyo'
 const chavy = init()
 const signurlVal = 'https://api-takumi.mihoyo.com/event/bbs_sign_reward/sign'
 const signheaderVal = chavy.getdata(signheaderKey)
-const signbodyVal = chavy.getdata(signbodyKey)
 const signinfo = []
 let bbslist = []
 
