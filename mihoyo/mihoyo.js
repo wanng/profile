@@ -2,68 +2,38 @@ const cookieName = '米游社'
 const signurlKey = 'chavy_signurl_mihoyo'
 const signheaderKey = 'chavy_signheader_mihoyo'
 const chavy = init()
-const signurlVal = chavy.getdata(signurlKey)
+const signurlVal = 'https://api-takumi.mihoyo.com/event/bbs_sign_reward/sign'
 const signheaderVal = chavy.getdata(signheaderKey)
+const signbodyVal = chavy.getdata(signbodyKey)
 const signinfo = []
 let bbslist = []
+
+// 签到请求
+const signRequest = {
+  url: signurlVal,
+  method: "POST",
+  headers: JSON.parse(signheaderVal),
+  body: '{"act_id":"e202009291139501","region":"cn_gf01","uid":"220552623"}'
+}
 
 sign()
 
 function sign() {
-  bbslist = [{
-    "id": 2,
-    "name": "原神",
-    "en_name": "ys",
-    "app_icon": "https://upload-bbs.mihoyo.com/game/ys/app_icon.png",
-    "icon": "https://upload-bbs.mihoyo.com/game/ys/icon.png",
-    "search_trend_word": "原神",
-    "level_image": "https://upload-bbs.mihoyo.com/game/ys/levelImage.png",
-    "level_text_color": "F3D8A8",
-    "topic_num": 1,
-    "op_name": "hk4e",
-    "main_color": "BDA575",
-    "has_wiki": true
-  }]
-  for (bbs of bbslist) signbbs(bbs)
+  signbbs()
   check()
 }
 
 function signbbs(bbs) {
-  const url = { url: `https://api-takumi.mihoyo.com/apihub/sapi/signIn?gids=${bbs.id}`, headers: JSON.parse(signheaderVal) }
-  chavy.post(url, (error, response, data) => signinfo.push(data))
+  chavy.post(signRequest , (error, response, data) => showmsg(data))
 }
 
-function check(checkms = 0) {
-  if (bbslist.length == signinfo.length) {
-    showmsg()
-  } else {
-    if (checkms > 5000) {
-      chavy.msg(`${cookieName}`, `签到失败: 超时退出`, ``)
-      chavy.done()
-    } else {
-      setTimeout(() => check(checkms + 100), 100)
-    }
-  }
-}
 
-function showmsg() {
-  const totalcnt = bbslist.length
-  let signed = 0
-  let skiped = 0
-  let succnt = 0
-  let failcnt = 0
-  for (info of signinfo) {
-    console.log("响应结果:")
-    console.log(info)
-    const i = JSON.parse(info)
-    if (i.retcode == 0) (signed += 1), (succnt += 1)
-    else if (i.retcode == 1008) (signed += 1), (skiped += 1)
-    else failcnt += 1
-  }
-  let subtitle = totalcnt == signed ? '签到结果: 全部成功' : '签到结果: 部分成功'
-  subtitle = 0 == signed ? '签到结果: 全部失败' : subtitle
-  const detail = `共签: ${signed}/${totalcnt}, 本次成功: ${succnt}, 失败: ${failcnt}, 重签: ${skiped}`
-  chavy.msg(cookieName, subtitle, detail)
+function showmsg(info) {
+  console.log("响应结果:")
+  console.log(info)
+
+  const i = JSON.parse(info)
+  chavy.msg(cookieName, '米游社签到', i.message)
   chavy.done()
 }
 
