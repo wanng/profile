@@ -13,7 +13,7 @@ const signInRequest = {
     url: do1Url,
     method: "POST",
     headers: do1Headers,
-    body: "isCheckBeforePhoto=&id=28744F3A-0D5A-4F22-BFC0-1D0A79AC8F60&againsignin=0&isgps=0&longitude=113.937828&latitude=22.522373&address=%E5%B9%BF%E4%B8%9C%E7%9C%81%E6%B7%B1%E5%9C%B3%E5%B8%82%E5%8D%97%E5%B1%B1%E5%8C%BA%E6%BB%A8%E6%B5%B7%E5%A4%A7%E9%81%93&isWorkDate=0&signDate=&ruleId=E2EBCF7D-1BF3-4420-B9C2-97102C1BA5FC&mapType=1&isMust=false&ruleTime="
+    body: "isCheckBeforePhoto=&id=AEE21D66-E6F8-4E9E-BB69-B369054CF3D3&againsignin=0&isgps=0&longitude=113.937828&latitude=22.522373&address=%E5%B9%BF%E4%B8%9C%E7%9C%81%E6%B7%B1%E5%9C%B3%E5%B8%82%E5%8D%97%E5%B1%B1%E5%8C%BA%E6%BB%A8%E6%B5%B7%E5%A4%A7%E9%81%93&isWorkDate=0&signDate=&ruleId=E2EBCF7D-1BF3-4420-B9C2-97102C1BA5FC&mapType=1&isMust=false&ruleTime="
 }
 
 // 签退
@@ -21,7 +21,7 @@ const signOutRequest = {
     url: do1Url,
     method: "POST",
     headers: do1Headers,
-    body: "isCheckBeforePhoto=&id=E91EA6E2-82A8-4165-975C-337E98240B4A&againsignin=0&isgps=0&longitude=113.937828&latitude=22.522373&address=%E5%B9%BF%E4%B8%9C%E7%9C%81%E6%B7%B1%E5%9C%B3%E5%B8%82%E5%8D%97%E5%B1%B1%E5%8C%BA%E6%BB%A8%E6%B5%B7%E5%A4%A7%E9%81%93&isWorkDate=0&signDate=&ruleId=E2EBCF7D-1BF3-4420-B9C2-97102C1BA5FC&mapType=1&isMust=false&ruleTime="
+    body: "isCheckBeforePhoto=&id=8814FC84-EBDE-43C0-9A81-E0A18BD093A3&againsignin=0&isgps=0&longitude=113.937828&latitude=22.522373&address=%E5%B9%BF%E4%B8%9C%E7%9C%81%E6%B7%B1%E5%9C%B3%E5%B8%82%E5%8D%97%E5%B1%B1%E5%8C%BA%E6%BB%A8%E6%B5%B7%E5%A4%A7%E9%81%93&isWorkDate=0&signDate=&ruleId=E2EBCF7D-1BF3-4420-B9C2-97102C1BA5FC&mapType=1&isMust=false&ruleTime="
 }
 
 const cookieName = "道一云"
