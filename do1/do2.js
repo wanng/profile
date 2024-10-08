@@ -13,7 +13,7 @@ const signInRequest = {
     url: do1Url,
     method: "POST",
     headers: do1Headers,
-    body: "isCheckBeforePhoto=&id=AEE21D66-E6F8-4E9E-BB69-B369054CF3D3&againsignin=0&isgps=0&longitude=113.937828&latitude=22.522373&address=%E5%B9%BF%E4%B8%9C%E7%9C%81%E6%B7%B1%E5%9C%B3%E5%B8%82%E5%8D%97%E5%B1%B1%E5%8C%BA%E6%BB%A8%E6%B5%B7%E5%A4%A7%E9%81%93&isWorkDate=0&signDate=&ruleId=E2EBCF7D-1BF3-4420-B9C2-97102C1BA5FC&mapType=1&isMust=false&ruleTime="
+    body: "isCheckBeforePhoto=&id=AEE21D66-E6F8-4E9E-BB69-B369054CF3D3&againsignin=0&isgps=0&longitude=113.940327&latitude=22.526579&address=%E9%AB%98%E6%96%B0%E5%8D%97%E4%B9%9D%E9%81%9341%E5%8F%B7&isWorkDate=0&signDate=&ruleId=E2EBCF7D-1BF3-4420-B9C2-97102C1BA5FC&mapType=1&isMust=false&ruleTime="
 }
 
 // 签退
@@ -21,12 +21,14 @@ const signOutRequest = {
     url: do1Url,
     method: "POST",
     headers: do1Headers,
-    body: "isCheckBeforePhoto=&id=8814FC84-EBDE-43C0-9A81-E0A18BD093A3&againsignin=0&isgps=0&longitude=113.937828&latitude=22.522373&address=%E5%B9%BF%E4%B8%9C%E7%9C%81%E6%B7%B1%E5%9C%B3%E5%B8%82%E5%8D%97%E5%B1%B1%E5%8C%BA%E6%BB%A8%E6%B5%B7%E5%A4%A7%E9%81%93&isWorkDate=0&signDate=&ruleId=E2EBCF7D-1BF3-4420-B9C2-97102C1BA5FC&mapType=1&isMust=false&ruleTime="
+    body: "isCheckBeforePhoto=&id=8814FC84-EBDE-43C0-9A81-E0A18BD093A3&againsignin=0&isgps=0&longitude=113.940327&latitude=22.526579&address=%E9%AB%98%E6%96%B0%E5%8D%97%E4%B9%9D%E9%81%9341%E5%8F%B7&isWorkDate=0&signDate=&ruleId=E2EBCF7D-1BF3-4420-B9C2-97102C1BA5FC&mapType=1&isMust=false&ruleTime="
 }
 
 const cookieName = "道一云"
 const cookieKey = "CookieDo1"
 const lastSuccessTimeKey = "LastSuccessTimeDo1"
+// 执行概率
+const execProbabilityKey = "Probability"
 
 const success = "success"
 const fail = "fail"
@@ -34,6 +36,25 @@ const none = "none"
 
 var Task = {
     run: function () {
+        var execProbability =  Store.get(execProbabilityKey)
+        if (!execProbability) {
+            execProbability = 10
+        }
+        console.log("本次执行概率: " + execProbability + "%")
+
+        var randomValue = Math.random() * 100;
+        console.log("本次随机数: " + randomValue)
+
+        if (randomValue > execProbability) {
+            console.log("本次未执行！")
+            Store.set(execProbabilityKey, execProbability + 10)
+            $done(none)
+            return
+        }
+
+        console.log("本次执行成功！")
+        Store.set(execProbabilityKey, 10)
+
         var lastSuccessTime = Store.get(lastSuccessTimeKey)
         if (lastSuccessTime && Now.time() - lastSuccessTime < 60 * 60 * 1000) {
             console.log("一小时内已成功签到/签退, 不再重试")
@@ -41,25 +62,30 @@ var Task = {
             return
         }
 
-        Today.isWorkDate().then(() => {
-            var clock = Now.clock()
+        var clock = Now.clock()
+        var request = null
 
-            // 07:00 - 09:30
-            if (clock > 7 && clock < 14) {
-                console.log("开始签到")
-                signInRequest.headers['Cookie'] = Store.get(cookieKey)
-                return $task.fetch(signInRequest)
-            }
-            
-            // 18:30 - 24:00
-            if (clock > 18.5 && clock < 24) {
-                console.log("开始签退")
-                signOutRequest.headers['Cookie'] = Store.get(cookieKey)
-                return $task.fetch(signOutRequest)
-            }
-            
-            throw "什么都没做"
-        }).then(response => {
+        // 07:00 - 09:30
+        if (clock > 7 && clock <= 9.5) {
+            console.log("开始签到")
+            signInRequest.headers['Cookie'] = Store.get(cookieKey)
+            request = signInRequest
+        }
+        
+        // 18:30 - 24:00
+        if (clock > 18.5 && clock < 24) {
+            console.log("开始签退")
+            signOutRequest.headers['Cookie'] = Store.get(cookieKey)
+            request = signOutRequest
+        }
+
+        if (!request) {
+            console.log("未到执行时间!")
+            $done(none)
+            return
+        }
+
+        $task.fetch(request).then(response => {
             var json = JSON.parse(response.body)
 
             if (json['code'] == "0") {
@@ -122,32 +148,7 @@ var Cookie = {
     }
 }
 
-var Today = {
 
-    holidayRequest: {
-        url: "http://timor.tech/api/holiday/info"
-    },
-
-    isWorkDate: function () {
-        return $task.fetch(this.holidayRequest).then(response => {
-            // var json = JSON.parse(response.body)
-            // var type = json.type.type
-            // if (![0, 3].includes(type)) {
-            //     throw '今天不是工作日!!'
-            // }
-        })
-    },
-
-    isHoliday: function () {
-        return $task.fetch(this.holidayRequest).then(response => {
-            var json = JSON.parse(response.body)
-            var type = json.type.type
-            if (![1, 2].includes(type)) {
-                throw '今天不是节假日!!'
-            }
-        })
-    }
-}
 
 var Now = {
     clock: function () {
