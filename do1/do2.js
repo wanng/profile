@@ -47,13 +47,13 @@ var Task = {
 
         if (randomValue > execProbability) {
             console.log("本次未执行！")
-            Store.put(execProbabilityKey, execProbability + 10)
+            Store.put(execProbabilityKey, "" + execProbability + 10)
             $done(none)
             return
         }
 
         console.log("本次执行成功！")
-        Store.put(execProbabilityKey, 10)
+        Store.put(execProbabilityKey, "" + 10)
 
         var lastSuccessTime = Store.get(lastSuccessTimeKey)
         if (lastSuccessTime && Now.time() - lastSuccessTime < 60 * 60 * 1000) {
