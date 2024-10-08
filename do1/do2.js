@@ -52,7 +52,7 @@ var Task = {
             return
         }
 
-        console.log("本次执行成功！")
+        console.log("本次触发执行！")
         Store.put(execProbabilityKey, 10 + "")
 
         var lastSuccessTime = Store.get(lastSuccessTimeKey)
@@ -85,31 +85,31 @@ var Task = {
             return
         }
 
-        // $task.fetch(request).then(response => {
-        //     var json = JSON.parse(response.body)
+        $task.fetch(request).then(response => {
+            var json = JSON.parse(response.body)
 
-        //     if (json['code'] == "0") {
-        //         Store.put(lastSuccessTimeKey, Now.time().toString())
-        //         $notify("道一云签到/签退成功", "", json['desc'])
-        //         $done(success)
-        //     }
+            if (json['code'] == "0") {
+                Store.put(lastSuccessTimeKey, Now.time().toString())
+                $notify("道一云签到/签退成功", "", json['desc'])
+                $done(success)
+            }
             
-        //     if (json['code'] == "88") {
-        //         Store.put(lastSuccessTimeKey, Now.time().toString())
-        //         $done(none)
-        //     }
+            if (json['code'] == "88") {
+                Store.put(lastSuccessTimeKey, Now.time().toString())
+                $done(none)
+            }
 
-        //     $notify("道一云签到/签退失败", "", json['desc'])
-        //     $done(fail)
-        // }).catch(reason => {
-        //     console.log(reason)
-        //     if (reason.error) {
-        //         $notify("道一云签到/签退失败", "", reason.error)
-        //         $done(fail)
-        //     } else {
-        //         $done(none)
-        //     }
-        // })
+            $notify("道一云签到/签退失败", "", json['desc'])
+            $done(fail)
+        }).catch(reason => {
+            console.log(reason)
+            if (reason.error) {
+                $notify("道一云签到/签退失败", "", reason.error)
+                $done(fail)
+            } else {
+                $done(none)
+            }
+        })
     }
 }
     
