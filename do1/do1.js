@@ -27,6 +27,8 @@ const signOutRequest = {
 const cookieName = "道一云"
 const cookieKey = "CookieDo1"
 const lastSuccessTimeKey = "LastSuccessTimeDo1"
+// 执行概率
+const execProbabilityKey = "Probability"
 
 const success = "success"
 const fail = "fail"
@@ -41,25 +43,30 @@ var Task = {
             return
         }
 
-        Today.isWorkDate().then(() => {
-            var clock = Now.clock()
+        var clock = Now.clock()
+        var request = null
 
-            // 07:00 - 09:30
-            if (clock > 7 && clock <= 9.5) {
-                console.log("开始签到")
-                signInRequest.headers['Cookie'] = Store.get(cookieKey)
-                return $task.fetch(signInRequest)
-            }
-            
-            // 18:30 - 24:00
-            if (clock > 18.5 && clock < 24) {
-                console.log("开始签退")
-                signOutRequest.headers['Cookie'] = Store.get(cookieKey)
-                return $task.fetch(signOutRequest)
-            }
-            
-            throw "什么都没做"
-        }).then(response => {
+        // 07:00 - 09:30
+        if (clock > 7 && clock <= 9.5) {
+            console.log("开始签到")
+            signInRequest.headers['Cookie'] = Store.get(cookieKey)
+            request = signInRequest
+        }
+        
+        // 18:30 - 24:00
+        if (clock > 18.5 && clock < 24) {
+            console.log("开始签退")
+            signOutRequest.headers['Cookie'] = Store.get(cookieKey)
+            request = signOutRequest
+        }
+
+        if (!request) {
+            console.log("未到执行时间!")
+            $done(none)
+            return
+        }
+
+        $task.fetch(request).then(response => {
             var json = JSON.parse(response.body)
 
             if (json['code'] == "0") {
@@ -122,32 +129,7 @@ var Cookie = {
     }
 }
 
-var Today = {
 
-    holidayRequest: {
-        url: "http://timor.tech/api/holiday/info"
-    },
-
-    isWorkDate: function () {
-        return $task.fetch(this.holidayRequest).then(response => {
-            // var json = JSON.parse(response.body)
-            // var type = json.type.type
-            // if (![0, 3].includes(type)) {
-            //     throw '今天不是工作日!!'
-            // }
-        })
-    },
-
-    isHoliday: function () {
-        return $task.fetch(this.holidayRequest).then(response => {
-            var json = JSON.parse(response.body)
-            var type = json.type.type
-            if (![1, 2].includes(type)) {
-                throw '今天不是节假日!!'
-            }
-        })
-    }
-}
 
 var Now = {
     clock: function () {
