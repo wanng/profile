@@ -53,11 +53,11 @@ var Task = {
         $task.fetch(getOneDateCalendarInfo_request).then(response => {
             // console.log(response.statusCode + "\n\n" + response.body);
             var json = JSON.parse(response.body);
-            if (json.data.conditionVo.csdList.length == 0 && json.data.conditionVo.infoList.length == 0) {
-                console.log("节假日，不签到");
-                $done();
-                return;
-            }
+            // if (json.data.conditionVo.csdList.length == 0 && json.data.conditionVo.infoList.length == 0) {
+            //     console.log("节假日，不签到");
+            //     $done();
+            //     return;
+            // }
             if (json.data.conditionVo.askList.length == 0) {
                 console.log("未请假，开始签到");
                 callback();
