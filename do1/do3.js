@@ -63,15 +63,15 @@ var Task = {
                 callback();
                 
             }
-            if (json.data.conditionVo.askList.length == 1) {
-                var startTime = new Date(json.data.conditionVo.askList[0].startTime);
-                var endTime = new Date(json.data.conditionVo.askList[0].endTime);
-                var now = new Date();
-                if (now < startTime || now > endTime) {
-                    console.log("请假半天假，开始签到");
-                    callback();
-                }
-            }
+            // if (json.data.conditionVo.askList.length == 1) {
+            //     var startTime = new Date(json.data.conditionVo.askList[0].startTime);
+            //     var endTime = new Date(json.data.conditionVo.askList[0].endTime);
+            //     var now = new Date();
+            //     if (now < startTime || now > endTime) {
+            //         console.log("请假半天假，开始签到");
+            //         callback();
+            //     }
+            // }
             $done();
         }, reason => {
             console.log(reason.error);
