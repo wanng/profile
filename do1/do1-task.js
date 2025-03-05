@@ -20,7 +20,7 @@ class AppConfig {
 
     static LOCATION = Object.freeze({
         coordinates: [113.940327, 22.526579],
-        address: "高新南九道41号"
+        address: "广东省深圳市南山区高新南九道55号"
     });
 
     static CHECK_RULES = Object.freeze({
