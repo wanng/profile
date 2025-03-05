@@ -49,6 +49,15 @@ class AppConfig {
             });
         })()
     });
+
+    // 新增参数配置
+    static getProbabilityParam() {
+        const sourcePath = $environment?.sourcePath || '';
+        const sourceUrl = new URL(sourcePath);
+        const sourceHash = sourceUrl.hash;
+        const scriptParams = new URLSearchParams(sourceHash.substring(1));
+        return scriptParams.get("probability") || "on";
+    }
 }
 
 // ====================
@@ -69,16 +78,23 @@ class TimeUtils {
 
 class StorageService {
     static get(key) {
-        return $prefs.valueForKey(key);
+        const val = $prefs.valueForKey(key);
+        console.log(`[STORAGE] 读取键值 ${key}: ${val?.substring(0,15)}...`);
+        return val;
     }
 
     static set(key, value) {
+        console.log(`[STORAGE] 设置键值 ${key}: ${value}`);
         $prefs.setValueForKey(value, key);
     }
 
     static checkRecentSuccess() {
-        const last = parseInt(this.get(AppConfig.STORAGE.lastSuccess));
-        return last && (Date.now() - last) < 3_600_000;
+        const last = parseInt(this.get(AppConfig.STORAGE.lastSuccess)) || 0;
+        const currentTime = Date.now();
+        const timeDiff = currentTime - last;
+        const shouldSkip = last !== 0 && timeDiff < 3_600_000;
+        console.log(`[CHECK] 最近成功检查: ${shouldSkip ? '跳过执行' : '允许执行'}`);
+        return shouldSkip;
     }
 }
 
@@ -88,7 +104,9 @@ class StorageService {
 class AttendanceValidator {
     static validateCookie() {
         const cookie = StorageService.get(AppConfig.STORAGE.cookie.key);
-        return AppConfig.STORAGE.cookie.validator(cookie);
+        const isValid = AppConfig.STORAGE.cookie.validator(cookie);
+        console.log(`[VALIDATE] Cookie有效性检查: ${isValid ? '通过' : '失败'}`);
+        return isValid;
     }
 }
 
@@ -96,12 +114,15 @@ class ProbabilityController {
     static checkExecution(probabilityKey) {
         const currentProb = parseInt(StorageService.get(probabilityKey)) || 10;
         const rand = Math.random() * 100;
+        console.log(`[PROB] 当前概率 ${currentProb}%, 随机值 ${rand.toFixed(2)}`);
 
         if (rand > currentProb) {
             const newProb = Math.min(currentProb + 10, 100);
             StorageService.set(probabilityKey, newProb.toString());
+            console.log(`[PROB] 未命中概率，提升至 ${newProb}%`);
             return false;
         }
+        console.log(`[PROB] 命中概率，继续执行`);
         return true;
     }
 }
@@ -112,11 +133,16 @@ class ProbabilityController {
 class AttendanceService {
     constructor(httpClient = new HttpClient()) {
         this.httpClient = httpClient;
+        this.probability = AppConfig.getProbabilityParam();
     }
 
     async execute() {
+        console.log(`[EXEC] 开始执行任务流程`);
         try {
-            if (!this.preCheck()) return;
+            if (!this.preCheck()) {
+                console.log(`[EXEC] 前置检查未通过，终止执行`);
+                return;
+            }
             await this.processCheckIn();
         } catch (error) {
             this.handleError(error);
@@ -126,65 +152,93 @@ class AttendanceService {
     }
 
     preCheck() {
+        console.log(`[CHECK] 开始前置检查`);
         if (!AttendanceValidator.validateCookie()) {
+            console.log(`[CHECK] Cookie无效，终止流程`);
             this.notify("Cookie无效");
             return false;
         }
-        if (StorageService.checkRecentSuccess()) return false;
+        
+        if (StorageService.checkRecentSuccess()) {
+            console.log(`[CHECK] 近期已成功执行，跳过本次`);
+            return false;
+        }
+
+        if (this.probability === "off") {
+            console.log(`[PROB] 概率控制已关闭，跳过概率检查`);
+            return true;
+        }
+
         return ProbabilityController.checkExecution(AppConfig.STORAGE.probability);
     }
 
     async processCheckIn() {
+        console.log(`[PROCESS] 开始处理签到流程`);
         const checkType = this.determineCheckType();
-        if (!checkType) return;
+        if (!checkType) {
+            console.log(`[PROCESS] 未匹配到有效签到类型`);
+            return;
+        }
+        console.log(`[PROCESS] 检测到签到类型: ${checkType}`);
 
         await this.verifyLeaveStatus();
+        console.log(`[PROCESS] 请假状态验证通过`);
         const result = await this.submitSign(checkType);
         this.handleResult(result);
     }
 
     determineCheckType() {
         const currentHour = TimeUtils.currentHour;
-        return Object.entries(AppConfig.CHECK_RULES).find(([_, rule]) =>
+        const checkType = Object.entries(AppConfig.CHECK_RULES).find(([_, rule]) =>
             currentHour > rule.timeRange[0] && currentHour <= rule.timeRange[1]
         )?.[0];
+        console.log(`[TIME] 当前时间 ${currentHour.toFixed(2)}H, 匹配类型 ${checkType || '无'}`);
+        return checkType;
     }
 
     async verifyLeaveStatus() {
+        console.log(`[VERIFY] 开始验证请假状态`);
         const { data } = await this.httpClient.get(
             AppConfig.API.endpoints.calendar,
             { searchDate: TimeUtils.today }
         );
         
         if (data?.conditionVo?.askList?.some(this.isCurrentLeave)) {
+            console.log(`[VERIFY] 检测到请假记录`);
             throw new Error("当前处于请假状态");
         }
     }
 
     async submitSign(type) {
         const rule = AppConfig.CHECK_RULES[type];
-        return this.httpClient.post(AppConfig.API.endpoints.sign, {
+        console.log(`[SIGN] 提交签到请求，类型: ${type}, 规则ID: ${rule.id}`);
+        const result = await this.httpClient.post(AppConfig.API.endpoints.sign, {
             ruleId: rule.id,
             ...AppConfig.LOCATION
         });
+        console.log(`[SIGN] 请求响应: ${JSON.stringify(result)}`);
+        return result;
     }
 
     handleResult(response) {
+        console.log(`[RESULT] 处理响应结果，状态码: ${response.code}`);
         if (!['0', '88'].includes(response.code)) {
             throw new Error(response.desc || "未知错误");
         }
 
         StorageService.set(AppConfig.STORAGE.lastSuccess, Date.now().toString());
         StorageService.set(AppConfig.STORAGE.probability, "10");
+        console.log(`[RESET] 重置执行概率为10%`);
         this.notify(response.code === "0" ? "操作成功" : "重复操作", response.desc);
     }
 
     handleError(error) {
-        console.error(`[ERR] ${error.stack || error}`);
+        console.error(`[ERROR] ${error.stack || error}`);
         this.notify("操作失败", error.message.replace("Error: ", ""));
     }
 
     notify(title, message = "") {
+        console.log(`[NOTIFY] 发送通知: ${title} - ${message}`);
         $notify("道一云", title, message);
     }
 
@@ -209,13 +263,18 @@ class HttpClient {
     async request(method, endpoint, data) {
         const url = AppConfig.API_HOST + endpoint;
         const headers = this.buildHeaders();
-        
-        const response = await $task.fetch({
+        console.log(`[HTTP] ${method}请求 ${endpoint}`);
+
+        const requestConfig = {
             url: method === 'GET' ? this.addQueryParams(url, data) : url,
             method,
             headers,
             body: method !== 'GET' ? this.encodeFormData(data) : undefined
-        });
+        };
+        console.log(`[HTTP] 请求参数 ${JSON.stringify(requestConfig).substring(0, 120)}...`);
+
+        const response = await $task.fetch(requestConfig);
+        console.log(`[HTTP] 响应状态码: ${response.statusCode}, 响应体长度: ${response.body?.length || 0}`);
 
         if (response.statusCode !== 200) {
             throw new Error(`HTTP ${response.statusCode}`);
@@ -248,6 +307,7 @@ class HttpClient {
 // 执行入口
 // ====================
 if (typeof $request !== "undefined") {
+    console.log(`[INIT] 检测到请求拦截`);
     const cookie = $request.headers?.Cookie;
     if (cookie && AppConfig.STORAGE.cookie.validator(cookie)) {
         StorageService.set(AppConfig.STORAGE.cookie.key, cookie);
@@ -255,5 +315,6 @@ if (typeof $request !== "undefined") {
     }
     $done();
 } else {
+    console.log(`[INIT] 启动定时任务`);
     new AttendanceService().execute();
 }
