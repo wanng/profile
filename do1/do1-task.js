@@ -25,12 +25,28 @@ class AppConfig {
 
     static CHECK_RULES = Object.freeze({
         checkIn: {
-            id: "AEE21D66-E6E8-4E9E-BB69-B369054CF3D3",
-            timeRange: [7.0, 9.5]
+            id: "AEE21D66-E6F8-4E9E-BB69-B369054CF3D3", // 修正签到ID
+            timeRange: [7.0, 9.5],
+            ruleId: "E2EBCF7D-1BF3-4420-B9C2-97102C1BA5FC" // 新增固定规则ID
         },
         checkOut: {
             id: "8814FC84-EBDE-43C0-9A81-E0A18BD093A3",
-            timeRange: [18.5, 24.0]
+            timeRange: [18.5, 24.0],
+            ruleId: "E2EBCF7D-1BF3-4420-B9C2-97102C1BA5FC" // 新增固定规则ID
+        }
+    });
+
+    // 新增固定请求参数
+    static FIXED_PARAMS = Object.freeze({
+        common: {
+            isCheckBeforePhoto: "",
+            againsignin: "0",
+            isgps: "0",
+            isWorkDate: "0",
+            signDate: "",
+            mapType: "1",
+            isMust: "false",
+            ruleTime: ""
         }
     });
 
@@ -212,10 +228,21 @@ class AttendanceService {
     async submitSign(type) {
         const rule = AppConfig.CHECK_RULES[type];
         console.log(`[SIGN] 提交签到请求，类型: ${type}, 规则ID: ${rule.id}`);
-        const result = await this.httpClient.post(AppConfig.API.endpoints.sign, {
-            ruleId: rule.id,
-            ...AppConfig.LOCATION
-        });
+        
+        // 构建符合要求的body参数
+        const requestBody = {
+            ...AppConfig.FIXED_PARAMS.common,
+            id: rule.id,
+            ruleId: rule.ruleId,
+            longitude: AppConfig.LOCATION.coordinates[0],
+            latitude: AppConfig.LOCATION.coordinates[1],
+            address: AppConfig.LOCATION.address
+        };
+
+        const result = await this.httpClient.post(
+            AppConfig.API.endpoints.sign,
+            requestBody
+        );
         console.log(`[SIGN] 请求响应: ${JSON.stringify(result)}`);
         return result;
     }
@@ -288,10 +315,14 @@ class HttpClient {
             .join('&');
         return query ? `${url}?${query}` : url;
     }
-
     encodeFormData(data) {
         return Object.entries(data)
-            .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+            .map(([k, v]) => {
+                // 处理空值参数
+                if (v === null || v === undefined) return '';
+                return `${k}=${encodeURIComponent(v)}`;
+            })
+            .filter(Boolean) // 过滤空值
             .join('&');
     }
 
