@@ -1,84 +1,80 @@
-const do1Url = "https://qy.do1.com.cn/wxqyh/portal/cooperationPortalCtl/continueSession.do"
-const do1Headers = {
-    "Host": "qy.do1.com.cn",
-    "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-    "Cookie": "",
-    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/7.0.18(0x17001231) NetType/4G Language/zh_CN",
-    "Referer": "https://qy.do1.com.cn/wxqyh/vp/module/checkwork.html?corp_id=wx53631950e42e0440&agentCode=checkwork"
-}
-const do1body = "agentCode=checkwork"
+/******************************
+ * @name Do1 保活请求脚本
+ * @desc 定期访问接口以保持会话活跃状态
+ * @version 2.0
+ * @author ChatGPT
+ ******************************/
 
-// 保活
-const keepAliveRequest = {
-    url: do1Url,
-    method: "POST",
-    headers: do1Headers,
-    body: do1body
+class StorageService {
+  static get(key) {
+    const val = $prefs.valueForKey(key);
+    console.log(`[STORAGE] 获取 ${key}: ${val ? val.substring(0, 15) + '...' : '无值'}`);
+    return val;
+  }
 }
 
-const cookieName = "道一云"
-const cookieKey = "CookieDo1"
-const lastSuccessTimeKey = "LastSuccessTimeDo1"
+const CONFIG = {
+  url: 'https://qy.do1.com.cn/wxqyh/portal/checkWorkSignInCtrl/getDisplayWorkHour.do',
+  cookieKey: 'CookieDo1',
+  body: 'belongAgent=checkwork',
+  maxRetries: 3,          // 最大重试次数
+  retryDelay: 2000,       // 重试间隔(ms)
+  notifyOnFail: true,     // 仅在失败时通知
+  notifyOnSuccess: false, // 保活成功时不打扰
+};
 
-var Task = {
-    run: function (ttl) {
-        if (ttl-- <= 0) {
-            $done()
-            return
-        }
-        keepAliveRequest.headers['Cookie'] = Store.get(cookieKey)
-        $task.fetch(keepAliveRequest).then(response => {
-            console.log("body:" + response.body)
-            var json = JSON.parse(response.body)
-            
-            if (json['code'] == "0") {
-                console.log(cookieName + " KeepAlive SUCCESS")
-                $done()
-                return
-            }
+// === 读取 Cookie ===
+const cookie = StorageService.get(CONFIG.cookieKey);
+if (!cookie) {
+  const msg = 'Cookie 不存在，请先登录并保存 CookieDo1';
+  console.log('❌ ' + msg);
+  if (CONFIG.notifyOnFail) $notify('Do1 保活失败', 'Cookie 缺失', msg);
+  $done();
+  return;
+}
 
-            var clock = Now.clock()
-            if (clock >= 9 && clock <= 21) {
-                console.log(cookieName + " KeepAlive FAIL" + json['desc'])
-                $notify("道一云保活", "", json['desc'])
-            }
-            $done()
-        }).catch(reason => {
-            console.log(cookieName + " KeepAlive FAIL " + reason.error)
-            Task.run(ttl)
-        })
+const headers = {
+  'Accept': '*/*',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Accept-Language': 'zh-CN,zh-Hans;q=0.9',
+  'Connection': 'keep-alive',
+  'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+  'Origin': 'https://qy.do1.com.cn',
+  'Referer': 'https://qy.do1.com.cn/wxqyh/vp/module/checkwork.html?corp_id=wx53631950e42e0440&agentCode=checkwork',
+  'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.64 NetType/WIFI',
+  'Sec-Fetch-Dest': 'empty',
+  'Sec-Fetch-Mode': 'cors',
+  'Sec-Fetch-Site': 'same-origin',
+  'Host': 'qy.do1.com.cn',
+  'Cookie': cookie,
+};
+
+// === 工具函数 ===
+function delay(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+async function fetchWithRetry(retries) {
+  const req = { url: CONFIG.url, method: 'POST', headers, body: CONFIG.body };
+  try {
+    const res = await $task.fetch(req);
+    console.log(`✅ 保活成功 [${res.statusCode}]`);
+    if (CONFIG.notifyOnSuccess) $notify('Do1 保活成功', '', `状态码：${res.statusCode}`);
+    $done();
+  } catch (err) {
+    console.log(`⚠️ 请求失败: ${err.error || err}，剩余重试次数：${retries}`);
+    if (retries > 0) {
+      await delay(CONFIG.retryDelay);
+      console.log('🔁 重试中...');
+      fetchWithRetry(retries - 1);
+    } else {
+      const msg = `请求连续失败 ${CONFIG.maxRetries} 次，请检查网络或 Cookie 是否过期`;
+      console.log('❌ ' + msg);
+      if (CONFIG.notifyOnFail) $notify('Do1 保活失败', '网络异常或 Cookie 失效', msg);
+      $done();
     }
+  }
 }
 
-var Now = {
-    clock: function () {
-        var now = new Date()
-        var hours = now.getHours()
-        var minutes = now.getMinutes()
-        var clock = (hours * 60 + minutes) / 60
-        return clock
-    },
-
-    time: function () {
-        return new Date().getTime()
-    }
-}
-
-var Store = {
-
-    get: function (key) {
-        return $prefs.valueForKey(key)
-    },
-
-    put: function (key, value) {
-        console.log("put [" + key + " : " +value+"]")
-        return $prefs.setValueForKey(value, key)
-    }
-}
-
-
-
-if (!$request) {
-    Task.run(60)   
-}
-  
+// === 主执行逻辑 ===
+fetchWithRetry(CONFIG.maxRetries);
