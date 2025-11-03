@@ -29,7 +29,7 @@ if (!cookie) {
   if (CONFIG.notifyOnFail) $notify('Do1 保活失败', 'Cookie 缺失', msg);
   $done();
   return;
-}·
+}
 
 const headers = {
   'Accept': '*/*',
@@ -55,7 +55,7 @@ async function fetchWithRetry(retries) {
     console.log(`✅ HTTP ${res.statusCode}`);
 
     // === 解析业务结果 ===
-    let json;
+    var json;
     try {
       json = JSON.parse(res.body);
     } catch {
