@@ -53,16 +53,10 @@ async function fetchWithRetry(retries) {
   try {
     const res = await $task.fetch(req);
     console.log(`✅ HTTP ${res.statusCode}`);
+    var json = JSON.parse(res.body);
 
-    // === 解析业务结果 ===
-    var json;
-    try {
-      json = JSON.parse(res.body);
-    } catch {
-      throw new Error('返回不是有效JSON');
-    }
-
-    if (json.code !== '0' || json.data?.isDisplayWorkHour === 0) {
+    // 失败情况
+    if (json.code !== '0') {
       const msg = `Cookie 可能失效：${json.desc || '未知原因'}`;
       console.log('⚠️ ' + msg);
       if (CONFIG.notifyOnFail)
