@@ -2,11 +2,11 @@
 class Storage {
   static get(key) {
     const val = $prefs.valueForKey(key);
-    console.log(`[GET] ${key}: ${val}`);
+    // console.log(`[GET] ${key}: ${val}`);
     return val;
   }
   static set(key, value) {
-    console.log(`[SET] ${key}: ${value}`);
+    // console.log(`[SET] ${key}: ${value}`);
     $prefs.setValueForKey(value, key);
   }
 }
@@ -53,7 +53,7 @@ class Cookie {
     if (!headerStr) return;
 
     const cookies = headerStr.split(/,\s*/);  // 关键：拆分多个 Set-Cookie
-    console.log(`[COOKIE] 收到 ${cookies.length} 个 Set-Cookie`);
+    // console.log(`[COOKIE] 收到 ${cookies.length} 个 Set-Cookie`);
 
     const now = new Date();
     cookies.forEach(str => {
@@ -65,10 +65,10 @@ class Cookie {
 
       if (expired) {
         delete obj[c.name];
-        console.log(`[DELETE] 过期: ${c.name}`);
+        // console.log(`[DELETE] 过期: ${c.name}`);
       } else {
         obj[c.name] = c.value;
-        console.log(`[UPDATE] ${c.name}=${c.value.substring(0, 20)}...`);
+        // console.log(`[UPDATE] ${c.name}=${c.value.substring(0, 20)}...`);
       }
     });
 
