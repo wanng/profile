@@ -1,26 +1,39 @@
-/******************************
- * @name Do1 保活请求（带业务检测）
- * @version 2.2
- * @desc 检测Cookie有效性，失效则在所有重试失败后提醒
- ******************************/
-
 class StorageService {
   static get(key) {
     const val = $prefs.valueForKey(key);
     console.log(`[STORAGE] 获取 ${key}: ${val ? val.substring(0, 15) + '...' : '无值'}`);
     return val;
   }
+  static set(key, value) {
+    console.log(`[STORAGE] 设置键值 ${key}: ${value}`);
+    $prefs.setValueForKey(value, key);
+  }
 }
 
 const CONFIG = {
-  url: 'https://qy.do1.com.cn/wxqyh/portal/cooperationPortalCtl/continueSession.do',
+  url: 'https://qy.do1.com.cn/wxqyh/portal/wxqyhLoginCtrl/getUserInfo.do?corp_id=wx53631950e42e0440&agentCode=checkwork',
   cookieKey: 'CookieDo1',
-  body: 'belongAgent=checkwork',
+  body: '',
   maxRetries: 3,
   retryDelay: 2000,
   notifyOnFail: true,
   notifyOnSuccess: false
 };
+
+// 原 cookie 字符串 -> 对象
+function cookieStrToObj(cookieStr) {
+  const obj = {};
+  cookieStr.split(';').forEach(pair => {
+    const [key, val] = pair.split('=');
+    if (key && val) obj[key.trim()] = val.trim();
+  });
+  return obj;
+}
+
+// 对象 -> cookie 字符串
+function cookieObjToStr(cookieObj) {
+  return Object.entries(cookieObj).map(([k,v]) => `${k}=${v}`).join('; ');
+}
 
 const cookie = StorageService.get(CONFIG.cookieKey);
 if (!cookie) {
@@ -53,36 +66,46 @@ async function fetchWithRetry(retriesLeft) {
   try {
     const res = await $task.fetch(req);
     console.log(`✅ HTTP ${res.statusCode}`);
-    const json = JSON.parse(res.body);
 
+    // 提取 Set-Cookie 并只更新对应部分
+    const setCookies = res.headers['Set-Cookie'] || res.headers['set-cookie'];
+    if (setCookies) {
+      const origCookieObj = cookieStrToObj(StorageService.get(CONFIG.cookieKey) || '');
+      const setCookieArr = Array.isArray(setCookies) ? setCookies : [setCookies];
+
+      setCookieArr.forEach(c => {
+        const [kv] = c.split(';');
+        const [key, val] = kv.split('=');
+        if (key && val) origCookieObj[key.trim()] = val.trim();
+      });
+
+      const newCookieStr = cookieObjToStr(origCookieObj);
+      StorageService.set(CONFIG.cookieKey, newCookieStr);
+      console.log(`✅ Cookie 更新成功: ${newCookieStr.substring(0, 50)}...`);
+    }
+
+    // 解析接口返回
+    const json = JSON.parse(res.body);
     if (json.code !== '0') {
-      console.log(`⚠️ 接口返回异常: ${json.desc || '未知原因'} (剩余重试次数: ${retriesLeft})`);
-      if (retriesLeft > 0) {
-        await delay(CONFIG.retryDelay);
-        console.log('🔁 正在重试...');
-        return fetchWithRetry(retriesLeft - 1);
-      } else {
-        const msg = `Cookie 可能失效：${json.desc || '未知原因'} (连续失败 ${CONFIG.maxRetries} 次)`;
-        console.log('❌ ' + msg);
-        if (CONFIG.notifyOnFail) $notify('Do1 保活失败', 'Cookie 已失效，请重新登录', msg);
-        $done();
-        return;
-      }
+      const msg = `Cookie 可能失效：${json.desc || '未知原因'}`;
+      console.log('❌ ' + msg);
+      if (CONFIG.notifyOnFail) $notify('Do1 保活失败', 'Cookie 已失效，请重新登录', msg);
+      $done();
+      return;
     }
 
     console.log('✅ 保活成功，Cookie 有效');
-    if (CONFIG.notifyOnSuccess)
-      $notify('Do1 保活成功', '', `接口返回：${json.desc}`);
+    if (CONFIG.notifyOnSuccess) $notify('Do1 保活成功', '', `接口返回：${json.desc}`);
     $done();
 
   } catch (err) {
     console.log(`⚠️ 网络请求失败: ${err.message || err} (剩余重试次数: ${retriesLeft})`);
     if (retriesLeft > 0) {
       await delay(CONFIG.retryDelay);
-      console.log('🔁 正在重试...');
+      console.log('🔁 网络错误重试...');
       return fetchWithRetry(retriesLeft - 1);
     } else {
-      const msg = `连续失败 ${CONFIG.maxRetries} 次，可能网络问题或Cookie失效`;
+      const msg = `连续 ${CONFIG.maxRetries} 次请求失败，可能网络问题`;
       console.log('❌ ' + msg);
       if (CONFIG.notifyOnFail) $notify('Do1 保活失败', '请求异常', msg);
       $done();
