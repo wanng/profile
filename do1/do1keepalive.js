@@ -1,13 +1,11 @@
 class StorageService {
   static get(key) {
     const val = $prefs.valueForKey(key);
-    console.log(`[STORAGE] 获取 ${key}: ${val}`);
-    // console.log(`[STORAGE] 获取 ${key}: ${val ? val.substring(0, 15) + '...' : '无值'}`);
+    console.log(`[STORAGE] 获取 ${key}: ${val ? val.substring(0, 15) + '...' : '无值'}`);
     return val;
   }
   static set(key, value) {
-    console.log(`[STORAGE] 设置 ${key}: ${value}`);
-    // console.log(`[STORAGE] 设置 ${key}: ${value ? value.substring(0, 30) + '...' : '无值'}`);
+    console.log(`[STORAGE] 设置 ${key}: ${value ? value.substring(0, 30) + '...' : '无值'}`);
     $prefs.setValueForKey(value, key);
   }
 }
@@ -24,15 +22,58 @@ const CONFIG = {
 
 function cookieStrToObj(cookieStr) {
   const obj = {};
+  if (!cookieStr) return obj;
   cookieStr.split(';').forEach(pair => {
     const [key, val] = pair.split('=');
-    if (key && val) obj[key.trim()] = val.trim();
+    if (key && val !== undefined) obj[key.trim()] = val.trim();
   });
   return obj;
 }
 
 function cookieObjToStr(cookieObj) {
   return Object.entries(cookieObj).map(([k, v]) => `${k}=${v}`).join('; ');
+}
+
+function parseSetCookie(setCookieStr) {
+  // 解析单个 Set-Cookie 字符串，返回 {name: value, expires: date?, maxAge: num?, domain: str?, path: str?}
+  const parts = setCookieStr.split(';').map(p => p.trim());
+  if (parts.length === 0) return null;
+  const [nameValue] = parts;
+  const [name, value] = nameValue.split('=');
+  if (!name) return null;
+  const cookie = { name: name.trim(), value: value ? value.trim() : '' };
+  parts.slice(1).forEach(attr => {
+    const [attrName, attrValue] = attr.split('=');
+    const key = attrName.toLowerCase().trim();
+    if (key === 'expires') cookie.expires = new Date(attrValue);
+    else if (key === 'max-age') cookie.maxAge = parseInt(attrValue, 10);
+    else if (key === 'domain') cookie.domain = attrValue.trim();
+    else if (key === 'path') cookie.path = attrValue.trim();
+  });
+  return cookie;
+}
+
+function updateCookiesFromSet(origObj, setCookies) {
+  const setArr = Array.isArray(setCookies) ? setCookies : [setCookies];
+  setArr.forEach(sc => {
+    if (!sc) return;
+    const cookie = parseSetCookie(sc);
+    if (!cookie) return;
+    const now = new Date();
+    const isExpired = (cookie.maxAge === 0 || cookie.maxAge < 0) ||
+                      (cookie.expires && cookie.expires < now);
+    if (isExpired) {
+      // 删除过期 Cookie
+      delete origObj[cookie.name];
+      console.log(`🗑️ 删除过期 Cookie: ${cookie.name}`);
+    } else {
+      // 更新有效 Cookie
+      origObj[cookie.name] = cookie.value;
+      console.log(`🔄 更新 Cookie: ${cookie.name}=${cookie.value}`);
+    }
+  });
+  // 清理空值
+  Object.keys(origObj).forEach(k => { if (!origObj[k]) delete origObj[k]; });
 }
 
 const cookie = StorageService.get(CONFIG.cookieKey);
@@ -81,9 +122,9 @@ async function fetchWithRetry(attempt = 1) {
       $done({}); return;
     }
 
-    // isLogin 检查：缺失视为 true，仅 false 为失败
+    // 更新 isLogin 检查：缺失视为 ok，仅 false 为失败
     const isLogin = json.data && (json.data.isLogin === false || json.data.isLogin === 'false') ? false : true;
-    console.log(`🔍 isLogin: ${isLogin ? 'true/缺失' : 'false (失败)'}`);
+    console.log(`🔍 isLogin: ${isLogin ? 'true/缺失 (ok)' : 'false (失败)'}`);
     if (!isLogin) {
       const msg = `登录失效: ${json.desc || 'isLogin=false'}`;
       console.log('❌ ' + msg);
@@ -93,10 +134,12 @@ async function fetchWithRetry(attempt = 1) {
 
     // 更新 Cookie
     const setCookies = res.headers['Set-Cookie'] || res.headers['set-cookie'];
-    
     if (setCookies) {
-      StorageService.set(CONFIG.cookieKey, setCookies);
-      console.log(`✅ Cookie 更新: ${setCookies.substring(0, 50)}...`);
+      const origObj = cookieStrToObj(StorageService.get(CONFIG.cookieKey) || '');
+      updateCookiesFromSet(origObj, setCookies);
+      const newCookie = cookieObjToStr(origObj);
+      StorageService.set(CONFIG.cookieKey, newCookie);
+      console.log(`✅ Cookie 更新: ${newCookie.substring(0, 50)}...`);
     }
 
     console.log('✅ 保活成功');
