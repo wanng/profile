@@ -1,11 +1,13 @@
 class StorageService {
   static get(key) {
     const val = $prefs.valueForKey(key);
-    console.log(`[STORAGE] 获取 ${key}: ${val ? val.substring(0, 15) + '...' : '无值'}`);
+    console.log(`[STORAGE] 获取 ${key}: ${val}`);
+    // console.log(`[STORAGE] 获取 ${key}: ${val ? val.substring(0, 15) + '...' : '无值'}`);
     return val;
   }
   static set(key, value) {
-    console.log(`[STORAGE] 设置 ${key}: ${value ? value.substring(0, 30) + '...' : '无值'}`);
+    console.log(`[STORAGE] 设置 ${key}: ${value}`);
+    // console.log(`[STORAGE] 设置 ${key}: ${value ? value.substring(0, 30) + '...' : '无值'}`);
     $prefs.setValueForKey(value, key);
   }
 }
@@ -70,7 +72,7 @@ async function fetchWithRetry(attempt = 1) {
       if (CONFIG.notifyOnFail) $notify('Do1 保活失败', '响应异常', msg);
       $done({}); return;
     }
-
+    console.log('json: ' + json);
     // 检查响应
     if (json.code !== '0') {
       const msg = `API 错误: ${json.desc || '未知'}`;
@@ -79,8 +81,9 @@ async function fetchWithRetry(attempt = 1) {
       $done({}); return;
     }
 
-    const isLogin = json.data && (json.data.isLogin === true || json.data.isLogin === 'true');
-    console.log(`🔍 isLogin: ${isLogin ? 'true' : 'false/缺失'}`);
+    // isLogin 检查：缺失视为 true，仅 false 为失败
+    const isLogin = json.data && (json.data.isLogin === false || json.data.isLogin === 'false') ? false : true;
+    console.log(`🔍 isLogin: ${isLogin ? 'true/缺失' : 'false (失败)'}`);
     if (!isLogin) {
       const msg = `登录失效: ${json.desc || 'isLogin=false'}`;
       console.log('❌ ' + msg);
