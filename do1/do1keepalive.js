@@ -112,9 +112,19 @@ async function keepAlive(attempt = 1) {
     console.log(`[HTTP] ${res.statusCode} (第 ${attempt} 次)`);
 
     const data = JSON.parse(res.body);
-    if (data.code !== '0') throw new Error(data.desc || '接口错误');
-    if (data.data?.isLogin === false) throw new Error('登录已失效');
 
+    // 业务失败：直接通知并结束，不重试
+    if (data.code !== '0') {
+      $notify('Do1 保活失败', '接口返回错误', data.desc || '未知错误');
+      $done();
+      return;
+    }
+    if (data.data?.isLogin === false) {
+      $notify('Do1 保活失败', '登录已失效', '请重新登录');
+      $done();
+      return;
+    }
+    
     // 更新 Cookie
     const setCookie = res.headers['Set-Cookie'] || res.headers['set-cookie'];
     if (setCookie) {
