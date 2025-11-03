@@ -1,8 +1,7 @@
 /******************************
- * @name Do1 保活请求脚本
- * @desc 定期访问接口以保持会话活跃状态
- * @version 2.0
- * @author ChatGPT
+ * @name Do1 保活请求（带业务检测）
+ * @version 2.1
+ * @desc 检测Cookie有效性，失效则提醒
  ******************************/
 
 class StorageService {
@@ -17,13 +16,12 @@ const CONFIG = {
   url: 'https://qy.do1.com.cn/wxqyh/portal/checkWorkSignInCtrl/getDisplayWorkHour.do',
   cookieKey: 'CookieDo1',
   body: 'belongAgent=checkwork',
-  maxRetries: 3,          // 最大重试次数
-  retryDelay: 2000,       // 重试间隔(ms)
-  notifyOnFail: true,     // 仅在失败时通知
-  notifyOnSuccess: false, // 保活成功时不打扰
+  maxRetries: 3,
+  retryDelay: 2000,
+  notifyOnFail: true,
+  notifyOnSuccess: false
 };
 
-// === 读取 Cookie ===
 const cookie = StorageService.get(CONFIG.cookieKey);
 if (!cookie) {
   const msg = 'Cookie 不存在，请先登录并保存 CookieDo1';
@@ -31,7 +29,7 @@ if (!cookie) {
   if (CONFIG.notifyOnFail) $notify('Do1 保活失败', 'Cookie 缺失', msg);
   $done();
   return;
-}
+}·
 
 const headers = {
   'Accept': '*/*',
@@ -42,14 +40,10 @@ const headers = {
   'Origin': 'https://qy.do1.com.cn',
   'Referer': 'https://qy.do1.com.cn/wxqyh/vp/module/checkwork.html?corp_id=wx53631950e42e0440&agentCode=checkwork',
   'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.64 NetType/WIFI',
-  'Sec-Fetch-Dest': 'empty',
-  'Sec-Fetch-Mode': 'cors',
-  'Sec-Fetch-Site': 'same-origin',
   'Host': 'qy.do1.com.cn',
-  'Cookie': cookie,
+  'Cookie': cookie
 };
 
-// === 工具函数 ===
 function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
@@ -58,23 +52,45 @@ async function fetchWithRetry(retries) {
   const req = { url: CONFIG.url, method: 'POST', headers, body: CONFIG.body };
   try {
     const res = await $task.fetch(req);
-    console.log(`✅ 保活成功 [${res.statusCode}]`);
-    if (CONFIG.notifyOnSuccess) $notify('Do1 保活成功', '', `状态码：${res.statusCode}`);
+    console.log(`✅ HTTP ${res.statusCode}`);
+
+    // === 解析业务结果 ===
+    let json;
+    try {
+      json = JSON.parse(res.body);
+    } catch {
+      throw new Error('返回不是有效JSON');
+    }
+
+    if (json.code !== '0' || json.data?.isDisplayWorkHour === 0) {
+      const msg = `Cookie 可能失效：${json.desc || '未知原因'}`;
+      console.log('⚠️ ' + msg);
+      if (CONFIG.notifyOnFail)
+        $notify('Do1 保活失败', 'Cookie 已失效，请重新登录', msg);
+      $done();
+      return;
+    }
+
+    // 正常情况
+    console.log('✅ 保活成功，Cookie 有效');
+    if (CONFIG.notifyOnSuccess)
+      $notify('Do1 保活成功', '', `接口返回：${json.desc}`);
     $done();
+
   } catch (err) {
-    console.log(`⚠️ 请求失败: ${err.error || err}，剩余重试次数：${retries}`);
+    console.log(`⚠️ 网络请求失败: ${err.message || err} (剩余重试次数: ${retries})`);
     if (retries > 0) {
       await delay(CONFIG.retryDelay);
-      console.log('🔁 重试中...');
+      console.log('🔁 正在重试...');
       fetchWithRetry(retries - 1);
     } else {
-      const msg = `请求连续失败 ${CONFIG.maxRetries} 次，请检查网络或 Cookie 是否过期`;
+      const msg = `连续失败 ${CONFIG.maxRetries} 次，可能网络问题或Cookie失效`;
       console.log('❌ ' + msg);
-      if (CONFIG.notifyOnFail) $notify('Do1 保活失败', '网络异常或 Cookie 失效', msg);
+      if (CONFIG.notifyOnFail)
+        $notify('Do1 保活失败', '请求异常', msg);
       $done();
     }
   }
 }
 
-// === 主执行逻辑 ===
 fetchWithRetry(CONFIG.maxRetries);
