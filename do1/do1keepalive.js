@@ -1,7 +1,7 @@
 /******************************
  * @name Do1 保活请求（带业务检测）
- * @version 2.1
- * @desc 检测Cookie有效性，失效则提醒
+ * @version 2.2
+ * @desc 检测Cookie有效性，失效则在所有重试失败后提醒
  ******************************/
 
 class StorageService {
@@ -48,40 +48,43 @@ function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-async function fetchWithRetry(retries) {
+async function fetchWithRetry(retriesLeft) {
   const req = { url: CONFIG.url, method: 'POST', headers, body: CONFIG.body };
   try {
     const res = await $task.fetch(req);
     console.log(`✅ HTTP ${res.statusCode}`);
-    var json = JSON.parse(res.body);
+    const json = JSON.parse(res.body);
 
-    // 失败情况
     if (json.code !== '0') {
-      const msg = `Cookie 可能失效：${json.desc || '未知原因'}`;
-      console.log('⚠️ ' + msg);
-      if (CONFIG.notifyOnFail)
-        $notify('Do1 保活失败', 'Cookie 已失效，请重新登录', msg);
-      $done();
-      return;
+      console.log(`⚠️ 接口返回异常: ${json.desc || '未知原因'} (剩余重试次数: ${retriesLeft})`);
+      if (retriesLeft > 0) {
+        await delay(CONFIG.retryDelay);
+        console.log('🔁 正在重试...');
+        return fetchWithRetry(retriesLeft - 1);
+      } else {
+        const msg = `Cookie 可能失效：${json.desc || '未知原因'} (连续失败 ${CONFIG.maxRetries} 次)`;
+        console.log('❌ ' + msg);
+        if (CONFIG.notifyOnFail) $notify('Do1 保活失败', 'Cookie 已失效，请重新登录', msg);
+        $done();
+        return;
+      }
     }
 
-    // 正常情况
     console.log('✅ 保活成功，Cookie 有效');
     if (CONFIG.notifyOnSuccess)
       $notify('Do1 保活成功', '', `接口返回：${json.desc}`);
     $done();
 
   } catch (err) {
-    console.log(`⚠️ 网络请求失败: ${err.message || err} (剩余重试次数: ${retries})`);
-    if (retries > 0) {
+    console.log(`⚠️ 网络请求失败: ${err.message || err} (剩余重试次数: ${retriesLeft})`);
+    if (retriesLeft > 0) {
       await delay(CONFIG.retryDelay);
       console.log('🔁 正在重试...');
-      fetchWithRetry(retries - 1);
+      return fetchWithRetry(retriesLeft - 1);
     } else {
       const msg = `连续失败 ${CONFIG.maxRetries} 次，可能网络问题或Cookie失效`;
       console.log('❌ ' + msg);
-      if (CONFIG.notifyOnFail)
-        $notify('Do1 保活失败', '请求异常', msg);
+      if (CONFIG.notifyOnFail) $notify('Do1 保活失败', '请求异常', msg);
       $done();
     }
   }
