@@ -1,17 +1,17 @@
-// === 存储服务 ===
+// === 💾 存储服务 ===
 class Storage {
   static get(key) {
     const val = $prefs.valueForKey(key);
-    // console.log(`[GET] ${key}: ${val}`);
+    // console.log(`📦 [GET] ${key}: ${val}`);
     return val;
   }
   static set(key, value) {
-    // console.log(`[SET] ${key}: ${value}`);
+    // console.log(`💽 [SET] ${key}: ${value}`);
     $prefs.setValueForKey(value, key);
   }
 }
 
-// === Cookie 服务（参考 Storage 组织方式）===
+// === 🍪 Cookie 服务（参考 Storage 组织方式）===
 class Cookie {
   // 字符串 → 对象
   static strToObj(str) {
@@ -52,8 +52,8 @@ class Cookie {
   static updateFromHeader(obj, headerStr) {
     if (!headerStr) return;
 
-    const cookies = headerStr.split(/,\s*/);  // 关键：拆分多个 Set-Cookie
-    // console.log(`[COOKIE] 收到 ${cookies.length} 个 Set-Cookie`);
+    const cookies = headerStr.split(/,\s*/);
+    console.log(`🍪 [COOKIE] 收到 ${cookies.length} 个 Set-Cookie`);
 
     const now = new Date();
     cookies.forEach(str => {
@@ -65,10 +65,10 @@ class Cookie {
 
       if (expired) {
         delete obj[c.name];
-        // console.log(`[DELETE] 过期: ${c.name}`);
+        console.log(`🗑️ [DELETE] 过期: ${c.name}`);
       } else {
         obj[c.name] = c.value;
-        // console.log(`[UPDATE] ${c.name}=${c.value.substring(0, 20)}...`);
+        console.log(`🔄 [UPDATE] ${c.name}=${c.value.substring(0, 20)}...`);
       }
     });
 
@@ -77,7 +77,7 @@ class Cookie {
   }
 }
 
-// === 配置 ===
+// === ⚙️ 配置 ===
 const CONFIG = {
   url: 'https://qy.do1.com.cn/wxqyh/portal/wxqyhLoginCtrl/getUserInfo.do?corp_id=wx53631950e42e0440&agentCode=checkwork',
   cookieKey: 'CookieDo1',
@@ -85,7 +85,7 @@ const CONFIG = {
   retryDelay: 2000
 };
 
-// === 请求头 ===
+// === 📮 请求头 ===
 const headers = {
   'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0.64',
   'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
@@ -93,33 +93,37 @@ const headers = {
   'Origin': 'https://qy.do1.com.cn'
 };
 
-// === 延时 ===
+// === ⏳ 延时 ===
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
-// === 主函数 ===
+// === 🚀 主函数 ===
 async function keepAlive(attempt = 1) {
   const cookie = Storage.get(CONFIG.cookieKey);
   if (!cookie) {
+    console.log('⚠️ [WARN] Cookie 缺失');
     $notify('Do1 保活失败', 'Cookie 缺失', '请先登录并保存 CookieDo1');
     $done();
     return;
   }
 
-  headers.Cookie = cookie;  // 动态注入
+  headers.Cookie = cookie;
 
   try {
+    console.log(`🌐 [REQUEST] 第 ${attempt} 次请求中...`);
     const res = await $task.fetch({ url: CONFIG.url, method: 'POST', headers, body: '' });
-    console.log(`[HTTP] ${res.statusCode} (第 ${attempt} 次)`);
+    console.log(`📥 [HTTP] 状态码: ${res.statusCode} (第 ${attempt} 次)`);
 
     const data = JSON.parse(res.body);
 
-    // 业务失败：直接通知并结束，不重试
+    // 业务失败
     if (data.code !== '0') {
+      console.log(`❌ [FAIL] 接口返回错误: ${data.desc || '未知错误'}`);
       $notify('Do1 保活失败', '接口返回错误', data.desc || '未知错误');
       $done();
       return;
     }
     if (data.data?.isLogin === false) {
+      console.log('🚫 [FAIL] 登录已失效');
       $notify('Do1 保活失败', '登录已失效', '请重新登录');
       $done();
       return;
@@ -132,22 +136,24 @@ async function keepAlive(attempt = 1) {
       Cookie.updateFromHeader(obj, setCookie);
       const newCookie = Cookie.objToStr(obj);
       Storage.set(CONFIG.cookieKey, newCookie);
-      console.log('[SUCCESS] Cookie 已更新');
+      console.log('✅ [SUCCESS] Cookie 已更新');
     }
 
-    console.log('Do1 保活成功');
+    console.log('🎉 [SUCCESS] Do1 保活成功');
     $done();
 
   } catch (err) {
-    console.log(`[ERROR] ${err.message} (尝试 ${attempt}/${CONFIG.maxRetries})`);
+    console.log(`⚡ [ERROR] ${err.message} (尝试 ${attempt}/${CONFIG.maxRetries})`);
     if (attempt < CONFIG.maxRetries) {
+      console.log(`⏳ [RETRY] ${CONFIG.retryDelay * attempt} ms 后重试...`);
       await delay(CONFIG.retryDelay * attempt);
       return keepAlive(attempt + 1);
     }
+    console.log('💥 [FAIL] 最终重试失败');
     $notify('Do1 保活失败', '最终失败', err.message);
     $done();
   }
 }
 
-// === 启动 ===
+// === 🏁 启动 ===
 keepAlive();
