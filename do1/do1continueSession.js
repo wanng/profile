@@ -56,18 +56,11 @@ async function fetchWithRetry(retriesLeft) {
     const json = JSON.parse(res.body);
 
     if (json.code !== '0') {
-      console.log(`⚠️ 接口返回异常: ${json.desc || '未知原因'} (剩余重试次数: ${retriesLeft})`);
-      if (retriesLeft > 0) {
-        await delay(CONFIG.retryDelay);
-        console.log('🔁 正在重试...');
-        return fetchWithRetry(retriesLeft - 1);
-      } else {
-        const msg = `Cookie 可能失效：${json.desc || '未知原因'} (连续失败 ${CONFIG.maxRetries} 次)`;
-        console.log('❌ ' + msg);
-        if (CONFIG.notifyOnFail) $notify('Do1 保活失败', 'Cookie 已失效，请重新登录', msg);
-        $done();
-        return;
-      }
+      const msg = `Cookie 可能失效：${json.desc || '未知原因'} (连续失败 ${CONFIG.maxRetries} 次)`;
+      console.log('❌ ' + msg);
+      if (CONFIG.notifyOnFail) $notify('Do1 保活失败', 'Cookie 已失效，请重新登录', msg);
+      $done();
+      return;
     }
 
     console.log('✅ 保活成功，Cookie 有效');
