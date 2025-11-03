@@ -5,7 +5,7 @@ class StorageService {
     return val;
   }
   static set(key, value) {
-    console.log(`[STORAGE] 设置键值 ${key}: ${value}`);
+    console.log(`[STORAGE] 设置 ${key}: ${value ? value.substring(0, 30) + '...' : '无值'}`);
     $prefs.setValueForKey(value, key);
   }
 }
@@ -20,7 +20,6 @@ const CONFIG = {
   notifyOnSuccess: false
 };
 
-// 原 cookie 字符串 -> 对象
 function cookieStrToObj(cookieStr) {
   const obj = {};
   cookieStr.split(';').forEach(pair => {
@@ -30,9 +29,8 @@ function cookieStrToObj(cookieStr) {
   return obj;
 }
 
-// 对象 -> cookie 字符串
 function cookieObjToStr(cookieObj) {
-  return Object.entries(cookieObj).map(([k,v]) => `${k}=${v}`).join('; ');
+  return Object.entries(cookieObj).map(([k, v]) => `${k}=${v}`).join('; ');
 }
 
 const cookie = StorageService.get(CONFIG.cookieKey);
@@ -40,8 +38,7 @@ if (!cookie) {
   const msg = 'Cookie 不存在，请先登录并保存 CookieDo1';
   console.log('❌ ' + msg);
   if (CONFIG.notifyOnFail) $notify('Do1 保活失败', 'Cookie 缺失', msg);
-  $done();
-  return;
+  $done({}); return;
 }
 
 const headers = {
@@ -57,60 +54,68 @@ const headers = {
   'Cookie': cookie
 };
 
-function delay(ms) {
-  return new Promise(r => setTimeout(r, ms));
-}
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function fetchWithRetry(retriesLeft) {
+async function fetchWithRetry(attempt = 1) {
   const req = { url: CONFIG.url, method: 'POST', headers, body: CONFIG.body };
   try {
     const res = await $task.fetch(req);
-    console.log(`✅ HTTP ${res.statusCode}`);
+    console.log(`✅ HTTP ${res.statusCode} (尝试 ${attempt})`);
 
-    // 提取 Set-Cookie 并只更新对应部分
+    // 解析 JSON（先检查响应）
+    let json;
+    try { json = JSON.parse(res.body); } catch (e) {
+      const msg = `JSON 解析失败: ${e.message}`;
+      console.log('❌ ' + msg);
+      if (CONFIG.notifyOnFail) $notify('Do1 保活失败', '响应异常', msg);
+      $done({}); return;
+    }
+
+    // 检查响应
+    if (json.code !== '0') {
+      const msg = `API 错误: ${json.desc || '未知'}`;
+      console.log('❌ ' + msg);
+      if (CONFIG.notifyOnFail) $notify('Do1 保活失败', 'API 异常', msg);
+      $done({}); return;
+    }
+
+    const isLogin = json.data && (json.data.isLogin === true || json.data.isLogin === 'true');
+    console.log(`🔍 isLogin: ${isLogin ? 'true' : 'false/缺失'}`);
+    if (!isLogin) {
+      const msg = `登录失效: ${json.desc || 'isLogin=false'}`;
+      console.log('❌ ' + msg);
+      if (CONFIG.notifyOnFail) $notify('Do1 保活失败', 'Cookie 失效', msg);
+      $done({}); return;
+    }
+
+    // 更新 Cookie（仅在 isLogin=true 后）
     const setCookies = res.headers['Set-Cookie'] || res.headers['set-cookie'];
     if (setCookies) {
-      const origCookieObj = cookieStrToObj(StorageService.get(CONFIG.cookieKey) || '');
-      const setCookieArr = Array.isArray(setCookies) ? setCookies : [setCookies];
-
-      setCookieArr.forEach(c => {
+      const origObj = cookieStrToObj(StorageService.get(CONFIG.cookieKey) || '');
+      (Array.isArray(setCookies) ? setCookies : [setCookies]).forEach(c => {
         const [kv] = c.split(';');
         const [key, val] = kv.split('=');
-        if (key && val) origCookieObj[key.trim()] = val.trim();
+        if (key && val) origObj[key.trim()] = val.trim();
       });
-
-      const newCookieStr = cookieObjToStr(origCookieObj);
-      StorageService.set(CONFIG.cookieKey, newCookieStr);
-      console.log(`✅ Cookie 更新成功: ${newCookieStr.substring(0, 50)}...`);
+      const newCookie = cookieObjToStr(origObj);
+      StorageService.set(CONFIG.cookieKey, newCookie);
+      console.log(`✅ Cookie 更新: ${newCookie.substring(0, 50)}...`);
     }
 
-    // 解析接口返回
-    const json = JSON.parse(res.body);
-    if (json.code !== '0') {
-      const msg = `Cookie 可能失效：${json.desc || '未知原因'}`;
-      console.log('❌ ' + msg);
-      if (CONFIG.notifyOnFail) $notify('Do1 保活失败', 'Cookie 已失效，请重新登录', msg);
-      $done();
-      return;
-    }
-
-    console.log('✅ 保活成功，Cookie 有效');
-    if (CONFIG.notifyOnSuccess) $notify('Do1 保活成功', '', `接口返回：${json.desc}`);
-    $done();
-
+    console.log('✅ 保活成功');
+    if (CONFIG.notifyOnSuccess) $notify('Do1 保活成功', '', json.desc);
+    $done({});
   } catch (err) {
-    console.log(`⚠️ 网络请求失败: ${err.message || err} (剩余重试次数: ${retriesLeft})`);
-    if (retriesLeft > 0) {
-      await delay(CONFIG.retryDelay);
-      console.log('🔁 网络错误重试...');
-      return fetchWithRetry(retriesLeft - 1);
-    } else {
-      const msg = `连续 ${CONFIG.maxRetries} 次请求失败，可能网络问题`;
-      console.log('❌ ' + msg);
-      if (CONFIG.notifyOnFail) $notify('Do1 保活失败', '请求异常', msg);
-      $done();
+    console.log(`⚠️ 请求失败: ${err.message || err} (尝试 ${attempt}/${CONFIG.maxRetries})`);
+    if (attempt < CONFIG.maxRetries) {
+      await delay(CONFIG.retryDelay * attempt);
+      return fetchWithRetry(attempt + 1);
     }
+    const msg = `重试 ${CONFIG.maxRetries} 次失败`;
+    console.log('❌ ' + msg);
+    if (CONFIG.notifyOnFail) $notify('Do1 保活失败', '网络异常', msg);
+    $done({});
   }
 }
 
-fetchWithRetry(CONFIG.maxRetries);
+fetchWithRetry();
