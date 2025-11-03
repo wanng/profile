@@ -341,14 +341,8 @@ if (typeof $request !== "undefined") {
     console.log(`[INIT] 检测到请求拦截`);
     const cookie = $request.headers?.Cookie;
     if (cookie && AppConfig.STORAGE.cookie.validator(cookie)) {
-        const old = StorageService.get(AppConfig.STORAGE.cookie.key) || "";
-        if (old !== cookie) {
-            StorageService.set(AppConfig.STORAGE.cookie.key, cookie);
-            $notify("道一云", "Cookie更新成功", "凭证已保存");
-        } else {
-            console.log(`[INIT] 未检测到Cookie更新`);
-        }
- 
+        StorageService.set(AppConfig.STORAGE.cookie.key, cookie);
+        $notify("道一云", "Cookie更新成功", "凭证已保存");
     }
     $done();
 } else {
