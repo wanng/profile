@@ -13,7 +13,7 @@ class StorageService {
 }
 
 const CONFIG = {
-  url: 'https://qy.do1.com.cn/wxqyh/portal/checkWorkSignInCtrl/getDisplayWorkHour.do',
+  url: 'https://qy.do1.com.cn/wxqyh/portal/cooperationPortalCtl/continueSession.do',
   cookieKey: 'CookieDo1',
   body: 'belongAgent=checkwork',
   maxRetries: 3,
