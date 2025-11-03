@@ -93,12 +93,10 @@ async function fetchWithRetry(attempt = 1) {
 
     // 更新 Cookie
     const setCookies = res.headers['Set-Cookie'] || res.headers['set-cookie'];
-
-    console.log('setCookies: ' + setCookies);
-
+    
     if (setCookies) {
       StorageService.set(CONFIG.cookieKey, setCookies);
-      console.log(`✅ Cookie 更新: ${newCookie.substring(0, 50)}...`);
+      console.log(`✅ Cookie 更新: ${setCookies.substring(0, 50)}...`);
     }
 
     console.log('✅ 保活成功');
