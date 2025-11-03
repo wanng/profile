@@ -1,11 +1,11 @@
 class StorageService {
   static get(key) {
     const val = $prefs.valueForKey(key);
-    console.log(`[STORAGE] 获取 ${key}: ${val ? val.substring(0, 15) + '...' : '无值'}`);
+    console.log(`[STORAGE] 获取 ${key}: ${val}`);
     return val;
   }
   static set(key, value) {
-    console.log(`[STORAGE] 设置 ${key}: ${value ? value.substring(0, 30) + '...' : '无值'}`);
+    console.log(`[STORAGE] 设置 ${key}: ${value}`);
     $prefs.setValueForKey(value, key);
   }
 }
