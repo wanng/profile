@@ -72,7 +72,6 @@ async function fetchWithRetry(attempt = 1) {
       if (CONFIG.notifyOnFail) $notify('Do1 保活失败', '响应异常', msg);
       $done({}); return;
     }
-    console.log('json: ' + res.body);
 
     // 检查响应
     if (json.code !== '0') {
@@ -92,21 +91,13 @@ async function fetchWithRetry(attempt = 1) {
       $done({}); return;
     }
 
-    // 更新 Cookie（仅在 isLogin=true 后）
+    // 更新 Cookie
     const setCookies = res.headers['Set-Cookie'] || res.headers['set-cookie'];
 
     console.log('setCookies: ' + setCookies);
 
     if (setCookies) {
-      const origObj = cookieStrToObj(StorageService.get(CONFIG.cookieKey) || '');
-      (Array.isArray(setCookies) ? setCookies : [setCookies]).forEach(c => {
-        const [kv] = c.split(';');
-        const [key, val] = kv.split('=');
-        console.log(`✅ Cookie 更新: ${key} = ${val}`);
-        if (key && val) origObj[key.trim()] = val.trim();
-      });
-      const newCookie = cookieObjToStr(origObj);
-      StorageService.set(CONFIG.cookieKey, newCookie);
+      StorageService.set(CONFIG.cookieKey, setCookies);
       console.log(`✅ Cookie 更新: ${newCookie.substring(0, 50)}...`);
     }
 
