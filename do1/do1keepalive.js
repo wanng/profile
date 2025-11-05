@@ -11,7 +11,7 @@ class Storage {
   }
 }
 
-// === 🍪 Cookie 服务（参考 Storage 组织方式）===
+// === 🍪 Cookie 服务 ===
 class Cookie {
   // 字符串 → 对象
   static strToObj(str) {
@@ -37,7 +37,6 @@ class Cookie {
     const [namePart] = parts;
     const [name, value = ''] = namePart.split('=');
     if (!name) return null;
-
     const cookie = { name: name.trim(), value: value.trim() };
     parts.slice(1).forEach(attr => {
       const [k, v] = attr.split('=');
@@ -51,18 +50,14 @@ class Cookie {
   // 更新 Cookie 对象（支持多 Set-Cookie 字符串）
   static updateFromHeader(obj, headerStr) {
     if (!headerStr) return;
-
-    const cookies = headerStr.split(/,\s*/);
+    const cookies = headerStr.split(/,\s*(?=[^;]+=)/);  // 优化分割，支持逗号分隔的多个Set-Cookie
     console.log(`🍪 [COOKIE] 收到 ${cookies.length} 个 Set-Cookie`);
-
     const now = new Date();
     cookies.forEach(str => {
       const c = this.parseOne(str);
       if (!c) return;
-
       const expired = (c.maxAge !== undefined && c.maxAge <= 0) ||
                       (c.expires && c.expires < now);
-
       if (expired) {
         delete obj[c.name];
         console.log(`🗑️ [DELETE] 过期: ${c.name}`);
@@ -71,7 +66,6 @@ class Cookie {
         console.log(`🔄 [UPDATE] ${c.name}=${c.value.substring(0, 20)}...`);
       }
     });
-
     // 清理空值
     Object.keys(obj).forEach(k => { if (!obj[k]) delete obj[k]; });
   }
@@ -82,7 +76,8 @@ const CONFIG = {
   url: 'https://qy.do1.com.cn/wxqyh/portal/wxqyhLoginCtrl/getUserInfo.do?corp_id=wx53631950e42e0440&agentCode=checkwork',
   cookieKey: 'CookieDo1',
   maxRetries: 3,
-  retryDelay: 2000
+  retryDelay: 2000,
+  timeout: 10000  // 新增超时配置
 };
 
 // === 📮 请求头 ===
@@ -105,14 +100,17 @@ async function keepAlive(attempt = 1) {
     $done();
     return;
   }
-
   headers.Cookie = cookie;
-
   try {
     console.log(`🌐 [REQUEST] 第 ${attempt} 次请求中...`);
-    const res = await $task.fetch({ url: CONFIG.url, method: 'POST', headers, body: '' });
+    const res = await $task.fetch({ 
+      url: CONFIG.url, 
+      method: 'POST', 
+      headers, 
+      body: '', 
+      timeout: CONFIG.timeout  // 新增请求超时
+    });
     console.log(`📥 [HTTP] 状态码: ${res.statusCode} (第 ${attempt} 次)`);
-
     const data = JSON.parse(res.body);
 
     // 业务失败
@@ -128,7 +126,7 @@ async function keepAlive(attempt = 1) {
       $done();
       return;
     }
-    
+
     // 更新 Cookie
     const setCookie = res.headers['Set-Cookie'] || res.headers['set-cookie'];
     if (setCookie) {
@@ -138,10 +136,8 @@ async function keepAlive(attempt = 1) {
       Storage.set(CONFIG.cookieKey, newCookie);
       console.log('✅ [SUCCESS] Cookie 已更新');
     }
-
     console.log('🎉 [SUCCESS] Do1 保活成功');
     $done();
-
   } catch (err) {
     console.log(`⚡ [ERROR] ${err.message} (尝试 ${attempt}/${CONFIG.maxRetries})`);
     if (attempt < CONFIG.maxRetries) {
