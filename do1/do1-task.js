@@ -61,7 +61,7 @@ class AppConfig {
                 Host: host,
                 Origin: AppConfig.API_HOST,
                 "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.64(0x18004030) NetType/WIFI Language/zh_CN"
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 26_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.73(0x18004939) NetType/WIFI Language/zh_CN"
             });
         })()
     });
