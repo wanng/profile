@@ -46,26 +46,37 @@ class Cookie {
   }
 
   // 更新 Cookie 对象（支持多 Set-Cookie 字符串）
+  // 返回是否有变化
   static updateFromHeader(obj, headerStr) {
-    if (!headerStr) return;
+    if (!headerStr) return false;
     const cookies = headerStr.split(/,\s*(?=[^;]+=)/);
-    console.log(`🍪 [COOKIE] 收到 ${cookies.length} 个 Set-Cookie`);
     const now = new Date();
+    let changed = false;
+
     cookies.forEach(str => {
       const c = this.parseOne(str);
       if (!c) return;
       const expired = (c.maxAge !== undefined && c.maxAge <= 0) ||
                       (c.expires && c.expires < now);
       if (expired) {
-        delete obj[c.name];
-        console.log(`🗑️ [DELETE] 过期: ${c.name}`);
+        if (obj[c.name] !== undefined) {
+          delete obj[c.name];
+          console.log(`🗑️ [DELETE] ${c.name}`);
+          changed = true;
+        }
       } else {
-        obj[c.name] = c.value;
-        console.log(`🔄 [UPDATE] ${c.name}=${c.value.substring(0, 20)}...`);
+        // 只有值变化才更新
+        if (obj[c.name] !== c.value) {
+          obj[c.name] = c.value;
+          console.log(`🔄 [UPDATE] ${c.name}=${c.value.substring(0, 20)}...`);
+          changed = true;
+        }
       }
     });
+
     // 清理空值
     Object.keys(obj).forEach(k => { if (!obj[k]) delete obj[k]; });
+    return changed;
   }
 }
 
@@ -100,11 +111,12 @@ function buildHeaders(cookie) {
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
 // === 🔗 合并 Cookie ===
+// 返回 { cookie: string, changed: boolean }
 function mergeCookies(existingCookie, setCookieHeader) {
-  if (!setCookieHeader) return existingCookie;
+  if (!setCookieHeader) return { cookie: existingCookie, changed: false };
   const obj = Cookie.strToObj(existingCookie);
-  Cookie.updateFromHeader(obj, setCookieHeader);
-  return Cookie.objToStr(obj);
+  const changed = Cookie.updateFromHeader(obj, setCookieHeader);
+  return { cookie: Cookie.objToStr(obj), changed };
 }
 
 // === 📡 调用单个接口 ===
@@ -184,32 +196,40 @@ async function keepAlive(attempt = 1) {
   }
 
   // 合并第一次 Cookie 更新
-  let updatedCookie = mergeCookies(cookie, result1.cookies);
+  const merge1 = mergeCookies(cookie, result1.cookies);
 
   // === 步骤 2: 调用 wxqyhConfig.do ===
-  const result2 = await callApi('wxqyhConfig', updatedCookie, attempt);
+  const result2 = await callApi('wxqyhConfig', merge1.cookie, attempt);
 
   if (!result2.success) {
-    // wxqyhConfig 失败，但仍保存第一次的 Cookie（部分保活）
-    Storage.set(CONFIG.cookieKey, updatedCookie);
-    console.log('⚠️ [PARTIAL] wxqyhConfig 失败，但 sessionCookie 已更新');
+    // wxqyhConfig 失败，但仍有变化则保存第一次的 Cookie（部分保活）
+    if (merge1.changed) {
+      Storage.set(CONFIG.cookieKey, merge1.cookie);
+      console.log('⚠️ [PARTIAL] wxqyhConfig 失败，但 Cookie 已更新');
+    } else {
+      console.log('✅ [NO_CHANGE] wxqyhConfig 失败，且 Cookie 无变化');
+    }
     $notify('Do1 部分保活成功', 'fileToken 未更新', '建议重新打开应用获取完整 Cookie');
     $done();
     return;
   }
 
   // 合并第二次 Cookie 更新
-  const finalCookie = mergeCookies(updatedCookie, result2.cookies);
-  Storage.set(CONFIG.cookieKey, finalCookie);
+  const merge2 = mergeCookies(merge1.cookie, result2.cookies);
 
-  // 输出完整 Cookie 信息
-  console.log('📋 [COOKIE] 最终 Cookie:');
-  const cookieObj = Cookie.strToObj(finalCookie);
-  Object.entries(cookieObj).forEach(([k, v]) => {
-    console.log(`  ${k}: ${v.substring(0, 30)}${v.length > 30 ? '...' : ''}`);
-  });
+  // 只有有变化才保存
+  if (merge2.changed) {
+    Storage.set(CONFIG.cookieKey, merge2.cookie);
+    console.log('📋 [COOKIE] 更新后的 Cookie:');
+    const cookieObj = Cookie.strToObj(merge2.cookie);
+    Object.entries(cookieObj).forEach(([k, v]) => {
+      console.log(`  ${k}: ${v.substring(0, 30)}${v.length > 30 ? '...' : ''}`);
+    });
+    console.log('🎉 [SUCCESS] Cookie 已更新');
+  } else {
+    console.log('✅ [NO_CHANGE] Cookie 无变化，无需保存');
+  }
 
-  console.log('🎉 [SUCCESS] Do1 保活成功，Cookie 已完整更新');
   $done();
 }
 
