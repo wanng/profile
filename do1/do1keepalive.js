@@ -202,6 +202,13 @@ async function keepAlive(attempt = 1) {
   const finalCookie = mergeCookies(updatedCookie, result2.cookies);
   Storage.set(CONFIG.cookieKey, finalCookie);
 
+  // 输出完整 Cookie 信息
+  console.log('📋 [COOKIE] 最终 Cookie:');
+  const cookieObj = Cookie.strToObj(finalCookie);
+  Object.entries(cookieObj).forEach(([k, v]) => {
+    console.log(`  ${k}: ${v.substring(0, 30)}${v.length > 30 ? '...' : ''}`);
+  });
+
   console.log('🎉 [SUCCESS] Do1 保活成功，Cookie 已完整更新');
   $done();
 }
