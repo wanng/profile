@@ -65,12 +65,10 @@ class Cookie {
           changed = true;
         }
       } else {
-        // 只有值变化才更新
-        if (obj[c.name] !== c.value) {
-          obj[c.name] = c.value;
-          console.log(`🔄 [UPDATE] ${c.name}=${c.value.substring(0, 20)}...`);
-          changed = true;
-        }
+        // 无条件覆盖更新
+        obj[c.name] = c.value;
+        console.log(`🔄 [UPDATE] ${c.name}=${c.value.substring(0, 20)}...`);
+        changed = true;
       }
     });
 
@@ -217,18 +215,14 @@ async function keepAlive(attempt = 1) {
   // 合并第二次 Cookie 更新
   const merge2 = mergeCookies(merge1.cookie, result2.cookies);
 
-  // 只有有变化才保存
-  if (merge2.changed) {
-    Storage.set(CONFIG.cookieKey, merge2.cookie);
-    console.log('📋 [COOKIE] 更新后的 Cookie:');
-    const cookieObj = Cookie.strToObj(merge2.cookie);
-    Object.entries(cookieObj).forEach(([k, v]) => {
-      console.log(`  ${k}: ${v.substring(0, 30)}${v.length > 30 ? '...' : ''}`);
-    });
-    console.log('🎉 [SUCCESS] Cookie 已更新');
-  } else {
-    console.log('✅ [NO_CHANGE] Cookie 无变化，无需保存');
-  }
+  // 无条件覆盖保存 Cookie
+  Storage.set(CONFIG.cookieKey, merge2.cookie);
+  console.log('📋 [COOKIE] 更新后的 Cookie:');
+  const cookieObj = Cookie.strToObj(merge2.cookie);
+  Object.entries(cookieObj).forEach(([k, v]) => {
+    console.log(`  ${k}: ${v.substring(0, 30)}${v.length > 30 ? '...' : ''}`);
+  });
+  console.log('🎉 [SUCCESS] Cookie 已更新');
 
   $done();
 }
