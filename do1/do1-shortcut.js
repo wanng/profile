@@ -119,6 +119,7 @@ class AttendanceValidator {
 class AttendanceService {
     constructor(httpClient = new HttpClient()) {
         this.httpClient = httpClient;
+        this.result = "failure"; // 默认失败
     }
 
     async execute() {
@@ -126,13 +127,15 @@ class AttendanceService {
         try {
             if (!this.preCheck()) {
                 console.log(`[EXEC] 前置检查未通过，终止执行`);
+                $done(this.result);
                 return;
             }
-            await this.processCheckIn();
+            const success = await this.processCheckIn();
+            this.result = success ? "success" : "failure";
         } catch (error) {
             this.handleError(error);
         } finally {
-            $done();
+            $done(this.result);
         }
     }
 
@@ -140,12 +143,13 @@ class AttendanceService {
         console.log(`[CHECK] 开始前置检查`);
         if (!AttendanceValidator.validateCookie()) {
             console.log(`[CHECK] Cookie无效，终止流程`);
-            this.notify("Cookie无效");
+            this.notify("签到失败", "Cookie无效，请重新获取");
             return false;
         }
         
         if (StorageService.checkRecentSuccess()) {
             console.log(`[CHECK] 近期已成功执行，跳过本次`);
+            this.result = "success"; // 近期已成功，视为成功
             return false;
         }
 
@@ -157,12 +161,14 @@ class AttendanceService {
         const checkType = this.determineCheckType();
         if (!checkType) {
             console.log(`[PROCESS] 未匹配到有效签到类型`);
-            return;
+            this.notify("签到失败", "不在签到时间范围内");
+            return false;
         }
         console.log(`[PROCESS] 检测到签到类型: ${checkType}`);
 
         const result = await this.submitSign(checkType);
         this.handleResult(result);
+        return true;
     }
 
     determineCheckType() {
