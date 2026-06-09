@@ -55,24 +55,36 @@ class AppConfig {
             sign: "/wxqyh/portal/checkWorkSignInCtrl/addsignin.do",
             calendar: "/wxqyh/portal/checkWorkDateCtrl/getOneDateCalendarInfo.do"
         },
-        headers: (() => {
-            const host = new URL(AppConfig.API_HOST).hostname;
-            return Object.freeze({
-                Host: host,
-                Origin: AppConfig.API_HOST,
-                "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 26_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.73(0x18004939) NetType/WIFI Language/zh_CN"
-            });
-        })()
+        headers: Object.freeze({
+            Host: "qy.do1.com.cn",
+            Origin: AppConfig.API_HOST,
+            Referer: "https://qy.do1.com.cn/wxqyh/vp/module/checkwork.html?corp_id=wx53631950e42e0440&agentCode=checkwork",
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 26_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.73(0x18004939) NetType/WIFI Language/zh_CN"
+        })
     });
 
     // 新增参数配置
     static getProbabilityParam() {
-        const sourcePath = $environment?.sourcePath || '';
-        const sourceUrl = new URL(sourcePath);
-        const sourceHash = sourceUrl.hash;
-        const scriptParams = new URLSearchParams(sourceHash.substring(1));
-        return scriptParams.get("probability") || "on";
+        try {
+            const sourcePath = $environment?.sourcePath || '';
+            if (!sourcePath || !sourcePath.includes('#')) {
+                return "on";
+            }
+            const hashIndex = sourcePath.indexOf('#');
+            const hash = sourcePath.substring(hashIndex + 1);
+            const params = hash.split('&');
+            for (const param of params) {
+                const [key, value] = param.split('=');
+                if (key === "probability") {
+                    return value || "on";
+                }
+            }
+            return "on";
+        } catch (e) {
+            console.log(`[CONFIG] 解析参数失败，使用默认值: ${e.message}`);
+            return "on";
+        }
     }
 }
 

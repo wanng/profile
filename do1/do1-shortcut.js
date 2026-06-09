@@ -56,6 +56,7 @@ class AppConfig {
         headers: Object.freeze({
             Host: "qy.do1.com.cn",
             Origin: AppConfig.API_HOST,
+            Referer: "https://qy.do1.com.cn/wxqyh/vp/module/checkwork.html?corp_id=wx53631950e42e0440&agentCode=checkwork",
             "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 26_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.73(0x18004939) NetType/WIFI Language/zh_CN"
         })
