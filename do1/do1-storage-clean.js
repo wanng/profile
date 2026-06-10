@@ -41,11 +41,11 @@ CLEANUP_KEYS.forEach(key => {
     if (valueBefore !== null && valueBefore !== undefined) {
         console.log(`\n清理键: ${key}`);
         
-        // 尝试删除（设置为空值或删除）
+        // 尝试删除（使用正确的 API）
         try {
-            // QuantumultX 的删除方法：设置为 null 或使用 removeValueForKey（如果支持）
-            // 通常使用 setValueForKey(null, key) 或 setValueForKey('', key)
-            $prefs.setValueForKey(null, key);
+            // 使用 QuantumultX 正确的删除方法：$prefs.removeValueForKey(key)
+            console.log(`   执行删除操作...`);
+            $prefs.removeValueForKey(key);
             
             // 验证删除结果
             const valueAfter = $prefs.valueForKey(key);
@@ -65,7 +65,7 @@ CLEANUP_KEYS.forEach(key => {
                 console.log(`   删除后值: ${valueAfter.substring(0, 50)}`);
             }
         } catch (error) {
-            console.log(`❌ 删除失败: ${error.message}`);
+            console.log(`❌ 删除异常: ${error.message}`);
             cleanupResults.push({
                 key,
                 before: valueBefore,
