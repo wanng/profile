@@ -247,7 +247,14 @@ class HttpClient {
             headers,
             body: method !== 'GET' ? this.encodeFormData(data) : undefined
         };
-        console.log(`[HTTP] 请求参数 ${JSON.stringify(requestConfig).substring(0, 120)}...`);
+
+        // 诊断日志：打印完整请求参数
+        console.log(`[DEBUG-FULL] 完整URL: ${requestConfig.url}`);
+        console.log(`[DEBUG-FULL] Cookie完整值: ${headers.Cookie}`);
+        console.log(`[DEBUG-FULL] 请求头: ${JSON.stringify(headers, null, 2)}`);
+        if (requestConfig.body) {
+            console.log(`[DEBUG-FULL] 请求体: ${requestConfig.body}`);
+        }
 
         const response = await $task.fetch(requestConfig);
         console.log(`[HTTP] 响应状态码: ${response.statusCode}, 响应体长度: ${response.body?.length || 0}`);
