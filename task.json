@@ -17,7 +17,10 @@
             "config": "12 48-50 8,18 * * ? https://raw.githubusercontent.com/wanng/profile/profile/do1/do1.js, tag=道一云快捷指令, img-url=touchid.system, enabled=false",
             "addons": "https://raw.githubusercontent.com/wanng/profile/profile/do1/do1rewrite.conf, tag=道一云cookie"
         },
-        
+        {
+            "config": "12 0 9 * * ? https://raw.githubusercontent.com/wanng/profile/profile/do1/do1-contact-watch.js, tag=道一云人员变动, img-url=person.2.fill.system, enabled=true",
+            "addons": "https://raw.githubusercontent.com/wanng/profile/profile/do1/do1rewrite.conf, tag=道一云cookie"
+        }
     ],
     "description": "自用仓库"
 }
