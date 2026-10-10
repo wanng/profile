@@ -1,7 +1,7 @@
 /*********************
  * 道一云人员变动监测
  *
- * 定时拉取全公司人员名单与部门归属，按 userId 与上一份快照比对，
+ * 定时拉取全公司人员名单与部门归属，以手机号为主键与上一份快照比对，
  * 检出新增（入职）/ 消失（离职）并推送通知；无变动则静默。
  * 不属于任何部门的账号（虚拟号）被排除在监测之外。
  ********************/
@@ -19,7 +19,7 @@ class AppConfig {
     static DEPT_ENDPOINT = "/wxqyh/portal/departmentAction/getChildDeptAndPerson.do";
 
     // 快照格式版本；升级后旧格式快照按首次运行处理
-    static SNAPSHOT_VERSION = 2;
+    static SNAPSHOT_VERSION = 3;
 
     static STORAGE = Object.freeze({
         cookie: {
@@ -42,7 +42,7 @@ class AppConfig {
     // 接口返回该 code 表示 Cookie 会话已失效（desc 为「页面已过期」），属确定性失败，不重试
     static SESSION_EXPIRED_CODE = "8888";
 
-    // 通知正文中每个分类最多列出的姓名数，超出部分截断并追加"等"
+    // 通知正文中每个分类最多列出的人员条数，超出部分截断并追加"等"
     static NAME_DISPLAY_LIMIT = 20;
 }
 
@@ -116,11 +116,15 @@ class ContactWatch {
             const persons = await this.fetchAll(cookie);
             const deptMembers = await this.fetchDeptMembers(cookie);
 
-            // 仅保留归属部门内的账号；无部门归属的虚拟号被排除在监测之外
+            // 仅保留归属部门内的账号（无部门归属的虚拟号被排除），
+            // 并以身份键（手机号优先）组织当前监测集；快照不存 userId
             const current = {};
-            Object.keys(persons).forEach(userId => {
-                if (deptMembers.has(userId)) {
-                    current[userId] = persons[userId];
+            Object.values(persons).forEach(person => {
+                if (deptMembers.has(person.userId)) {
+                    current[ContactWatch.identityKey(person)] = {
+                        personName: person.personName,
+                        mobile: person.mobile
+                    };
                 }
             });
             console.log(`[FILTER] 名单 ${Object.keys(persons).length} 人，其中归属部门 ${Object.keys(current).length} 人`);
@@ -158,7 +162,7 @@ class ContactWatch {
         }
     }
 
-    // 逐页拉取全部人员，构建 { userId: personName } 映射，跨页按 userId 去重
+    // 逐页拉取全部人员，构建 { userId: { userId, personName, mobile } }，跨页按 userId 去重
     async fetchAll(cookie) {
         const client = this.httpClient || new HttpClient(cookie);
         const members = {};
@@ -190,7 +194,11 @@ class ContactWatch {
             const list = Array.isArray(data.pageData) ? data.pageData : [];
             list.forEach(person => {
                 if (person && person.userId) {
-                    members[person.userId] = person.personName;
+                    members[person.userId] = {
+                        userId: person.userId,
+                        personName: person.personName,
+                        mobile: ContactWatch.normalizeMobile(person.mobile)
+                    };
                 }
             });
 
@@ -281,7 +289,7 @@ class ContactWatch {
         return { userList, deptlist };
     }
 
-    // 读取当前监测集；无快照、解析失败或旧格式（无版本标记）时返回 null，按首次运行处理
+    // 读取当前监测集；无快照、解析失败或版本号非当前值时返回 null，按首次运行处理
     loadSnapshot() {
         const raw = StorageService.get(AppConfig.STORAGE.snapshot);
         if (!raw) {
@@ -298,8 +306,8 @@ class ContactWatch {
 
         if (!parsed || typeof parsed !== "object" || parsed.v !== AppConfig.SNAPSHOT_VERSION ||
             !parsed.members || typeof parsed.members !== "object") {
-            // 旧格式（裸 { userId: personName }）不含版本标记：忽略它并重建，
-            // 避免升级后对既有虚拟号误报一次性"离职"
+            // 版本号非当前值（含无版本标记的裸对象、旧的 v2）：忽略它并重建，
+            // 避免升级后误报一次性"离职"
             console.log("[SNAPSHOT] 快照格式过旧或无效，按首次运行处理");
             return null;
         }
@@ -314,26 +322,43 @@ class ContactWatch {
         );
     }
 
-    // 按 userId 集合比对，返回新增/消失人员的姓名数组
+    // 以手机号为身份主键；手机号缺失时回退 userId，避免无法识别
+    static identityKey(person) {
+        return person.mobile ? `m:${person.mobile}` : `u:${person.userId}`;
+    }
+
+    static normalizeMobile(mobile) {
+        if (mobile === null || mobile === undefined) {
+            return "";
+        }
+        return String(mobile).trim();
+    }
+
+    // 按身份键求集合差：新增 = 当前有、上次无；消失 = 上次有、当前无
     static diff(previous, current) {
         const added = Object.keys(current)
-            .filter(userId => !(userId in previous))
-            .map(userId => current[userId]);
+            .filter(key => !(key in previous))
+            .map(key => current[key]);
         const removed = Object.keys(previous)
-            .filter(userId => !(userId in current))
-            .map(userId => previous[userId]);
+            .filter(key => !(key in current))
+            .map(key => previous[key]);
         return { added, removed };
     }
 
     buildBody(added, removed) {
         const lines = [];
         if (added.length > 0) {
-            lines.push(`新增：${ContactWatch.formatNames(added)}`);
+            lines.push(`新增：${ContactWatch.formatNames(added.map(ContactWatch.describePerson))}`);
         }
         if (removed.length > 0) {
-            lines.push(`减少：${ContactWatch.formatNames(removed)}`);
+            lines.push(`减少：${ContactWatch.formatNames(removed.map(ContactWatch.describePerson))}`);
         }
         return lines.join("\n");
+    }
+
+    // 通知中的展示文案：姓名 + 手机号（无手机号时只显示姓名）
+    static describePerson(person) {
+        return person.mobile ? `${person.personName} ${person.mobile}` : `${person.personName}`;
     }
 
     static formatNames(names) {

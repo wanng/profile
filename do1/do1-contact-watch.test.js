@@ -15,8 +15,18 @@ const SCRIPT_PATH = path.join(__dirname, "do1-contact-watch.js");
 
 // ---------- 测试数据构造 ----------
 
-function person(userId, personName) {
-    return { userId, personName, userStatus: "2" };
+function person(userId, personName, mobile) {
+    return { userId, personName, mobile, userStatus: "2" };
+}
+
+// 快照 members 中的一条人员记录（不含 userId）
+function rec(personName, mobile = "") {
+    return { personName, mobile };
+}
+
+// 身份键：手机号非空用 m:，否则回退 u:
+function keyOf(userId, mobile = "") {
+    return mobile ? `m:${mobile}` : `u:${userId}`;
 }
 
 // 构造一页成功的人员名单响应
@@ -56,12 +66,17 @@ function deptResponse({ deptlist = [], userList = [], maxPage = 1, totalRows, cu
     };
 }
 
-// 构造部门接口的业务失败响应（如偶发的 8888 页面已过期）
+// 构造部门接口的业务失败响应（如 8888 页面已过期）
 function deptError(code = "8888", desc = "页面已过期") {
     return { statusCode: 200, body: JSON.stringify({ code, desc }) };
 }
 
-// 当前格式（带版本标记）的快照原始字符串
+// 当前格式（v3）快照原始字符串
+function snapshotV3(members) {
+    return JSON.stringify({ v: 3, members });
+}
+
+// 旧格式（v2）快照原始字符串，用于迁移用例
 function snapshotV2(members) {
     return JSON.stringify({ v: 2, members });
 }
@@ -217,26 +232,37 @@ async function runAll() {
     }
 }
 
-// ---------- 既有用例 ----------
+// ---------- 基础用例 ----------
 
 test("首次运行：仅建立基准快照，不发通知", async () => {
     const runtime = createRuntime({
         snapshot: null,
-        pages: [pageResponse([person("u1", "张三"), person("u2", "李四")], { maxPage: 1 })]
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })]
     });
     const { ContactWatch } = freshRequire();
     await new ContactWatch().run();
 
     assert.strictEqual(runtime.notifications.length, 0, "首次运行不应发通知");
-    assert.deepStrictEqual(runtime.readSnapshot(), { u1: "张三", u2: "李四" });
+    assert.deepStrictEqual(runtime.readSnapshot(), {
+        "m:13800000001": rec("张三", "13800000001"),
+        "m:13800000002": rec("李四", "13800000002")
+    });
     assert.strictEqual(runtime.doneCount, 1, "必须调用 $done 一次");
-    assert.strictEqual(JSON.parse(runtime.readRawSnapshot()).v, 2, "快照应带版本标记");
+    assert.strictEqual(JSON.parse(runtime.readRawSnapshot()).v, 3, "快照应带 v3 版本标记");
 });
 
-test("新增：检出当前有、上次无的人员并通知", async () => {
+test("新增：检出当前有、上次无的人员并通知（正文含姓名 手机号）", async () => {
     const runtime = createRuntime({
-        snapshot: snapshotV2({ u1: "张三" }),
-        pages: [pageResponse([person("u1", "张三"), person("u2", "李四")], { maxPage: 1 })]
+        snapshot: snapshotV3({
+            "m:13800000001": rec("张三", "13800000001")
+        }),
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })]
     });
     const { ContactWatch } = freshRequire();
     await new ContactWatch().run();
@@ -244,43 +270,66 @@ test("新增：检出当前有、上次无的人员并通知", async () => {
     assert.strictEqual(runtime.notifications.length, 1);
     assert.strictEqual(runtime.notifications[0].title, "道一云人员变动");
     assert.strictEqual(runtime.notifications[0].subtitle, "新增 1 / 减少 0");
-    assert.ok(runtime.notifications[0].body.includes("李四"), "正文应包含新增姓名");
-    assert.deepStrictEqual(runtime.readSnapshot(), { u1: "张三", u2: "李四" });
+    assert.ok(runtime.notifications[0].body.includes("李四 13800000002"), "正文应含「姓名 手机号」");
+    assert.deepStrictEqual(runtime.readSnapshot(), {
+        "m:13800000001": rec("张三", "13800000001"),
+        "m:13800000002": rec("李四", "13800000002")
+    });
 });
 
 test("消失：检出上次有、当前无的人员并通知", async () => {
     const runtime = createRuntime({
-        snapshot: snapshotV2({ u1: "张三", u2: "李四" }),
-        pages: [pageResponse([person("u1", "张三")], { maxPage: 1 })]
+        snapshot: snapshotV3({
+            "m:13800000001": rec("张三", "13800000001"),
+            "m:13800000002": rec("李四", "13800000002")
+        }),
+        pages: [pageResponse([person("u1", "张三", "13800000001")], { maxPage: 1 })]
     });
     const { ContactWatch } = freshRequire();
     await new ContactWatch().run();
 
     assert.strictEqual(runtime.notifications.length, 1);
     assert.strictEqual(runtime.notifications[0].subtitle, "新增 0 / 减少 1");
-    assert.ok(runtime.notifications[0].body.includes("李四"), "正文应包含消失姓名");
-    assert.deepStrictEqual(runtime.readSnapshot(), { u1: "张三" });
+    assert.ok(runtime.notifications[0].body.includes("李四 13800000002"), "正文应含「姓名 手机号」");
+    assert.deepStrictEqual(runtime.readSnapshot(), {
+        "m:13800000001": rec("张三", "13800000001")
+    });
 });
 
 test("无变动：静默，但快照仍刷新", async () => {
     const runtime = createRuntime({
-        snapshot: snapshotV2({ u1: "张三", u2: "李四" }),
-        pages: [pageResponse([person("u1", "张三"), person("u2", "李四")], { maxPage: 1 })]
+        snapshot: snapshotV3({
+            "m:13800000001": rec("张三", "13800000001"),
+            "m:13800000002": rec("李四", "13800000002")
+        }),
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })]
     });
     const { ContactWatch } = freshRequire();
     await new ContactWatch().run();
 
     assert.strictEqual(runtime.notifications.length, 0, "无变动应静默");
-    assert.deepStrictEqual(runtime.readSnapshot(), { u1: "张三", u2: "李四" });
+    assert.deepStrictEqual(runtime.readSnapshot(), {
+        "m:13800000001": rec("张三", "13800000001"),
+        "m:13800000002": rec("李四", "13800000002")
+    });
 });
 
 test("多页聚合：按 userId 去重并逐页拉取", async () => {
     const runtime = createRuntime({
         snapshot: null,
         pages: [
-            pageResponse([person("u1", "张三"), person("u2", "李四")], { maxPage: 2, currPage: 1 }),
+            pageResponse([
+                person("u1", "张三", "13800000001"),
+                person("u2", "李四", "13800000002")
+            ], { maxPage: 2, currPage: 1 }),
             // 第二页含跨页重复的 u2，应被去重
-            pageResponse([person("u2", "李四"), person("u3", "王五")], { maxPage: 2, currPage: 2 })
+            pageResponse([
+                person("u2", "李四", "13800000002"),
+                person("u3", "王五", "13800000003")
+            ], { maxPage: 2, currPage: 2 })
         ]
     });
     const { ContactWatch } = freshRequire();
@@ -289,7 +338,11 @@ test("多页聚合：按 userId 去重并逐页拉取", async () => {
     assert.strictEqual(runtime.personRequests.length, 2, "应逐页拉取两页");
     assert.ok(runtime.personRequests[0].body.includes("page=1"));
     assert.ok(runtime.personRequests[1].body.includes("page=2"));
-    assert.deepStrictEqual(runtime.readSnapshot(), { u1: "张三", u2: "李四", u3: "王五" });
+    assert.deepStrictEqual(runtime.readSnapshot(), {
+        "m:13800000001": rec("张三", "13800000001"),
+        "m:13800000002": rec("李四", "13800000002"),
+        "m:13800000003": rec("王五", "13800000003")
+    });
 });
 
 test("总页数以首屏为准：后续页返回偏小的 maxPage 不得提前收尾", async () => {
@@ -297,10 +350,10 @@ test("总页数以首屏为准：后续页返回偏小的 maxPage 不得提前�
         snapshot: null,
         pages: [
             // 首屏声明共 3 页
-            pageResponse([person("u1", "张三")], { maxPage: 3, currPage: 1 }),
+            pageResponse([person("u1", "张三", "13800000001")], { maxPage: 3, currPage: 1 }),
             // 第二页异常地返回 maxPage=1，不得因此把总页数改小
-            pageResponse([person("u2", "李四")], { maxPage: 1, currPage: 2 }),
-            pageResponse([person("u3", "王五")], { maxPage: 3, currPage: 3 })
+            pageResponse([person("u2", "李四", "13800000002")], { maxPage: 1, currPage: 2 }),
+            pageResponse([person("u3", "王五", "13800000003")], { maxPage: 3, currPage: 3 })
         ]
     });
     const { ContactWatch } = freshRequire();
@@ -308,15 +361,22 @@ test("总页数以首屏为准：后续页返回偏小的 maxPage 不得提前�
 
     assert.strictEqual(runtime.personRequests.length, 3, "应按首屏 maxPage 拉满 3 页");
     assert.ok(runtime.personRequests[2].body.includes("page=3"), "第三页必须被请求");
-    assert.deepStrictEqual(runtime.readSnapshot(), { u1: "张三", u2: "李四", u3: "王五" });
+    assert.deepStrictEqual(runtime.readSnapshot(), {
+        "m:13800000001": rec("张三", "13800000001"),
+        "m:13800000002": rec("李四", "13800000002"),
+        "m:13800000003": rec("王五", "13800000003")
+    });
 });
 
 test("分页失败：HTTP 非 200 时中止，不更新快照、不发通知", async () => {
-    const previousSnapshot = snapshotV2({ u1: "张三" });
+    const previousSnapshot = snapshotV3({ "m:13800000001": rec("张三", "13800000001") });
     const runtime = createRuntime({
         snapshot: previousSnapshot,
         pages: [
-            pageResponse([person("u1", "张三"), person("u2", "李四")], { maxPage: 2, currPage: 1 }),
+            pageResponse([
+                person("u1", "张三", "13800000001"),
+                person("u2", "李四", "13800000002")
+            ], { maxPage: 2, currPage: 1 }),
             { statusCode: 500, body: "server error" }
         ]
     });
@@ -329,11 +389,11 @@ test("分页失败：HTTP 非 200 时中止，不更新快照、不发通知", a
 });
 
 test("分页失败：业务 code 非 0 时中止，不更新快照、不发通知", async () => {
-    const previousSnapshot = snapshotV2({ u1: "张三" });
+    const previousSnapshot = snapshotV3({ "m:13800000001": rec("张三", "13800000001") });
     const runtime = createRuntime({
         snapshot: previousSnapshot,
         pages: [
-            pageResponse([person("u1", "张三")], { maxPage: 2, currPage: 1 }),
+            pageResponse([person("u1", "张三", "13800000001")], { maxPage: 2, currPage: 1 }),
             { statusCode: 200, body: JSON.stringify({ code: "-1", desc: "登录失效" }) }
         ]
     });
@@ -346,11 +406,11 @@ test("分页失败：业务 code 非 0 时中止，不更新快照、不发通�
 });
 
 test("分页失败：JSON 解析异常时中止，不更新快照、不发通知", async () => {
-    const previousSnapshot = snapshotV2({ u1: "张三" });
+    const previousSnapshot = snapshotV3({ "m:13800000001": rec("张三", "13800000001") });
     const runtime = createRuntime({
         snapshot: previousSnapshot,
         pages: [
-            pageResponse([person("u1", "张三")], { maxPage: 2, currPage: 1 }),
+            pageResponse([person("u1", "张三", "13800000001")], { maxPage: 2, currPage: 1 }),
             { statusCode: 200, body: "<html>not json</html>" }
         ]
     });
@@ -382,7 +442,7 @@ test("人员接口请求头与 body 符合契约", async () => {
     const runtime = createRuntime({
         cookie: "sessionToken=abc; fileToken=def",
         snapshot: null,
-        pages: [pageResponse([person("u1", "张三")], { maxPage: 1 })]
+        pages: [pageResponse([person("u1", "张三", "13800000001")], { maxPage: 1 })]
     });
     const { ContactWatch } = freshRequire();
     await new ContactWatch().run();
@@ -401,10 +461,10 @@ test("人员接口请求头与 body 符合契约", async () => {
 test("姓名过多：正文截断并追加「等」", async () => {
     const current = [];
     for (let i = 0; i < 30; i++) {
-        current.push(person(`u${i}`, `员工${i}`));
+        current.push(person(`u${i}`, `员工${i}`, `138000000${String(i).padStart(2, "0")}`));
     }
     const runtime = createRuntime({
-        snapshot: snapshotV2({}),
+        snapshot: snapshotV3({}),
         pages: [pageResponse(current, { maxPage: 1 })]
     });
     const { ContactWatch } = freshRequire();
@@ -421,7 +481,7 @@ test("部门接口请求符合契约", async () => {
     const runtime = createRuntime({
         cookie: "sessionToken=abc",
         snapshot: null,
-        pages: [pageResponse([person("u1", "张三")], { maxPage: 1 })]
+        pages: [pageResponse([person("u1", "张三", "13800000001")], { maxPage: 1 })]
     });
     const { ContactWatch } = freshRequire();
     await new ContactWatch().run();
@@ -436,22 +496,30 @@ test("部门接口请求符合契约", async () => {
 
 test("无部门归属的虚拟号被排除：出现不通知、不入快照", async () => {
     const runtime = createRuntime({
-        snapshot: snapshotV2({ u1: "张三" }),
+        snapshot: snapshotV3({ "m:13800000001": rec("张三", "13800000001") }),
         // 名单里有虚拟号 v1（中化小泽），但它不在任何部门
-        pages: [pageResponse([person("u1", "张三"), person("v1", "中化小泽")], { maxPage: 1 })],
-        depts: { "": deptResponse({ userList: [person("u1", "张三")] }) }
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("v1", "中化小泽", "13800000000")
+        ], { maxPage: 1 })],
+        depts: { "": deptResponse({ userList: [person("u1", "张三", "13800000001")] }) }
     });
     const { ContactWatch } = freshRequire();
     await new ContactWatch().run();
 
     assert.strictEqual(runtime.notifications.length, 0, "虚拟号出现不应触发变动通知");
-    assert.deepStrictEqual(runtime.readSnapshot(), { u1: "张三" }, "虚拟号不应进入快照");
+    assert.deepStrictEqual(runtime.readSnapshot(),
+        { "m:13800000001": rec("张三", "13800000001") },
+        "虚拟号不应进入快照");
 });
 
 test("有部门归属账号的新增仍正确报告", async () => {
     const runtime = createRuntime({
-        snapshot: snapshotV2({ u1: "张三" }),
-        pages: [pageResponse([person("u1", "张三"), person("u2", "李四")], { maxPage: 1 })],
+        snapshot: snapshotV3({ "m:13800000001": rec("张三", "13800000001") }),
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })],
         depts: { "": deptResponse({ userList: [person("u1", "张三"), person("u2", "李四")] }) }
     });
     const { ContactWatch } = freshRequire();
@@ -459,13 +527,16 @@ test("有部门归属账号的新增仍正确报告", async () => {
 
     assert.strictEqual(runtime.notifications.length, 1);
     assert.strictEqual(runtime.notifications[0].subtitle, "新增 1 / 减少 0");
-    assert.ok(runtime.notifications[0].body.includes("李四"));
+    assert.ok(runtime.notifications[0].body.includes("李四 13800000002"));
 });
 
 test("有部门归属账号的消失仍正确报告", async () => {
     const runtime = createRuntime({
-        snapshot: snapshotV2({ u1: "张三", u2: "李四" }),
-        pages: [pageResponse([person("u1", "张三")], { maxPage: 1 })],
+        snapshot: snapshotV3({
+            "m:13800000001": rec("张三", "13800000001"),
+            "m:13800000002": rec("李四", "13800000002")
+        }),
+        pages: [pageResponse([person("u1", "张三", "13800000001")], { maxPage: 1 })],
         depts: { "": deptResponse({ userList: [person("u1", "张三")] }) }
     });
     const { ContactWatch } = freshRequire();
@@ -473,14 +544,17 @@ test("有部门归属账号的消失仍正确报告", async () => {
 
     assert.strictEqual(runtime.notifications.length, 1);
     assert.strictEqual(runtime.notifications[0].subtitle, "新增 0 / 减少 1");
-    assert.ok(runtime.notifications[0].body.includes("李四"));
+    assert.ok(runtime.notifications[0].body.includes("李四 13800000002"));
 });
 
 test("部门接口返回 8888：通知 Cookie 失效，中止且不重试、不写快照", async () => {
-    const previousSnapshot = snapshotV2({ u1: "张三" });
+    const previousSnapshot = snapshotV3({ "m:13800000001": rec("张三", "13800000001") });
     const runtime = createRuntime({
         snapshot: previousSnapshot,
-        pages: [pageResponse([person("u1", "张三"), person("u2", "李四")], { maxPage: 1 })],
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })],
         depts: { "": deptError("8888", "页面已过期") }
     });
     const { ContactWatch } = freshRequire();
@@ -494,7 +568,7 @@ test("部门接口返回 8888：通知 Cookie 失效，中止且不重试、不�
 });
 
 test("人员接口返回 8888：通知 Cookie 失效，中止且不重试、不写快照", async () => {
-    const previousSnapshot = snapshotV2({ u1: "张三" });
+    const previousSnapshot = snapshotV3({ "m:13800000001": rec("张三", "13800000001") });
     const runtime = createRuntime({
         snapshot: previousSnapshot,
         pages: [{ statusCode: 200, body: JSON.stringify({ code: "8888", desc: "页面已过期" }) }]
@@ -511,10 +585,13 @@ test("人员接口返回 8888：通知 Cookie 失效，中止且不重试、不�
 });
 
 test("部门 userList 空但 totalRows>0：判为异常，中止本轮不写快照不发通知", async () => {
-    const previousSnapshot = snapshotV2({ u1: "张三" });
+    const previousSnapshot = snapshotV3({ "m:13800000001": rec("张三", "13800000001") });
     const runtime = createRuntime({
         snapshot: previousSnapshot,
-        pages: [pageResponse([person("u1", "张三"), person("u2", "李四")], { maxPage: 1 })],
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })],
         depts: { "": deptResponse({ userList: [], totalRows: 1 }) } // 异常：声称有 1 人却返回空
     });
     const { ContactWatch } = freshRequire();
@@ -529,7 +606,10 @@ test("部门 userList 空但 totalRows>0：判为异常，中止本轮不写快�
 test("部门树含子部门：递归收集归属成员", async () => {
     const runtime = createRuntime({
         snapshot: null,
-        pages: [pageResponse([person("u1", "张三"), person("u2", "李四")], { maxPage: 1 })],
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })],
         depts: {
             "": deptResponse({
                 deptlist: [{ id: "d1", departmentName: "研发部" }],
@@ -543,14 +623,20 @@ test("部门树含子部门：递归收集归属成员", async () => {
 
     assert.strictEqual(runtime.deptRequests.length, 2, "应同时请求根部门与子部门");
     assert.ok(runtime.deptRequests[1].body.includes("deptId=d1"));
-    assert.deepStrictEqual(runtime.readSnapshot(), { u1: "张三", u2: "李四" });
+    assert.deepStrictEqual(runtime.readSnapshot(), {
+        "m:13800000001": rec("张三", "13800000001"),
+        "m:13800000002": rec("李四", "13800000002")
+    });
 });
 
 test("部门返回 maxPage>1：翻页不支持时安全中止，不写快照、不发通知", async () => {
-    const previousSnapshot = snapshotV2({ u1: "张三" });
+    const previousSnapshot = snapshotV3({ "m:13800000001": rec("张三", "13800000001") });
     const runtime = createRuntime({
         snapshot: previousSnapshot,
-        pages: [pageResponse([person("u1", "张三"), person("u2", "李四")], { maxPage: 1 })],
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })],
         depts: {
             "": deptResponse({ userList: [person("u1", "张三")], maxPage: 2, totalRows: 40 })
         }
@@ -564,20 +650,111 @@ test("部门返回 maxPage>1：翻页不支持时安全中止，不写快照、�
     assert.strictEqual(runtime.doneCount, 1);
 });
 
+// ---------- 身份主键（手机号）用例 ----------
+
+test("手机号相同、userId 变：同一人不报增删", async () => {
+    const runtime = createRuntime({
+        snapshot: snapshotV3({ "m:13800000001": rec("张三", "13800000001") }),
+        pages: [pageResponse([person("new", "张三", "13800000001")], { maxPage: 1 })],
+        depts: { "": deptResponse({ userList: [person("new", "张三")] }) }
+    });
+    const { ContactWatch } = freshRequire();
+    await new ContactWatch().run();
+
+    assert.strictEqual(runtime.notifications.length, 0, "仅 userId 变化不应上报");
+    assert.deepStrictEqual(runtime.readSnapshot(),
+        { "m:13800000001": rec("张三", "13800000001") },
+        "快照按手机号保持同一身份");
+});
+
+test("手机号变（同一人）：无抑制，报「减少 1 + 新增 1」", async () => {
+    const runtime = createRuntime({
+        snapshot: snapshotV3({ "m:13800000001": rec("张三", "13800000001") }),
+        pages: [pageResponse([person("u1", "张三", "13900000009")], { maxPage: 1 })],
+        depts: { "": deptResponse({ userList: [person("u1", "张三")] }) }
+    });
+    const { ContactWatch } = freshRequire();
+    await new ContactWatch().run();
+
+    assert.strictEqual(runtime.notifications.length, 1, "手机号变化应报减少+新增");
+    assert.strictEqual(runtime.notifications[0].subtitle, "新增 1 / 减少 1");
+    assert.ok(runtime.notifications[0].body.includes("张三 13900000009"), "新增应含新手机号");
+    assert.ok(runtime.notifications[0].body.includes("张三 13800000001"), "减少应含旧手机号");
+    assert.deepStrictEqual(runtime.readSnapshot(),
+        { "m:13900000009": rec("张三", "13900000009") },
+        "快照应更新为新的手机号键");
+});
+
+test("手机号缺失：回退 u:<userId> 作键，比对仍正确", async () => {
+    const runtime = createRuntime({
+        snapshot: snapshotV3({ "u:u1": rec("张三") }),
+        pages: [pageResponse([
+            person("u1", "张三"),
+            person("u2", "李四")
+        ], { maxPage: 1 })]
+    });
+    const { ContactWatch } = freshRequire();
+    await new ContactWatch().run();
+
+    assert.strictEqual(runtime.notifications.length, 1);
+    assert.strictEqual(runtime.notifications[0].subtitle, "新增 1 / 减少 0");
+    assert.ok(runtime.notifications[0].body.includes("李四"), "无手机号时正文只含姓名");
+    assert.deepStrictEqual(runtime.readSnapshot(), {
+        "u:u1": rec("张三"),
+        "u:u2": rec("李四")
+    });
+});
+
+test("快照成员记录不含 userId 字段", async () => {
+    const runtime = createRuntime({
+        snapshot: null,
+        pages: [pageResponse([person("u1", "张三", "13800000001")], { maxPage: 1 })]
+    });
+    const { ContactWatch } = freshRequire();
+    await new ContactWatch().run();
+
+    const members = runtime.readSnapshot();
+    assert.deepStrictEqual(members, {
+        "m:13800000001": { personName: "张三", mobile: "13800000001" }
+    });
+    Object.values(members).forEach(member => {
+        assert.ok(!("userId" in member), "快照成员记录不应含 userId 字段");
+    });
+
+    // 无手机号的回退记录同样不含 userId
+    const fallbackRuntime = createRuntime({
+        snapshot: null,
+        pages: [pageResponse([person("u9", "赵六")], { maxPage: 1 })]
+    });
+    await new ContactWatch().run();
+    assert.deepStrictEqual(fallbackRuntime.readSnapshot(), {
+        "u:u9": { personName: "赵六", mobile: "" }
+    });
+    Object.values(fallbackRuntime.readSnapshot()).forEach(member => {
+        assert.ok(!("userId" in member), "回退记录的成员对象也不应含 userId");
+    });
+});
+
 // ---------- 快照迁移 用例 ----------
 
-test("旧格式快照（无 v=2）：按首次运行重建，不发通知", async () => {
+test("v2 旧快照：按首次运行重建，不发通知", async () => {
     const runtime = createRuntime({
-        // 旧格式：裸 { userId: personName }，无版本标记
-        snapshot: JSON.stringify({ u1: "张三" }),
-        pages: [pageResponse([person("u1", "张三"), person("u2", "李四")], { maxPage: 1 })]
+        // 旧 v2 格式：members 为 { key: name }
+        snapshot: snapshotV2({ u1: "张三" }),
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })]
     });
     const { ContactWatch } = freshRequire();
     await new ContactWatch().run();
 
     assert.strictEqual(runtime.notifications.length, 0, "旧快照迁移不应发变动通知");
-    assert.deepStrictEqual(runtime.readSnapshot(), { u1: "张三", u2: "李四" }, "应重建为当前监测集");
-    assert.strictEqual(JSON.parse(runtime.readRawSnapshot()).v, 2, "重写后的快照应带版本标记");
+    assert.deepStrictEqual(runtime.readSnapshot(), {
+        "m:13800000001": rec("张三", "13800000001"),
+        "m:13800000002": rec("李四", "13800000002")
+    }, "应重建为当前监测集");
+    assert.strictEqual(JSON.parse(runtime.readRawSnapshot()).v, 3, "重写后的快照应为 v3");
 });
 
 runAll();
