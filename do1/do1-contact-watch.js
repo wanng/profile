@@ -1,8 +1,9 @@
 /*********************
  * 道一云人员变动监测
  *
- * 定时拉取全公司人员名单，与上一份快照按 userId 比对，
+ * 定时拉取全公司人员名单与部门归属，按 userId 与上一份快照比对，
  * 检出新增（入职）/ 消失（离职）并推送通知；无变动则静默。
+ * 不属于任何部门的账号（虚拟号）被排除在监测之外。
  ********************/
 
 // ====================
@@ -11,7 +12,14 @@
 class AppConfig {
     static API_HOST = "https://qy.do1.com.cn";
 
+    // 人员名单接口
     static ENDPOINT = "/wxqyh/portal/selectUserAction/ajaxGetUserListByOrgID.do";
+
+    // 部门树与成员接口
+    static DEPT_ENDPOINT = "/wxqyh/portal/departmentAction/getChildDeptAndPerson.do";
+
+    // 快照格式版本；升级后旧格式快照按首次运行处理
+    static SNAPSHOT_VERSION = 2;
 
     static STORAGE = Object.freeze({
         cookie: {
@@ -31,6 +39,9 @@ class AppConfig {
         })
     });
 
+    // 接口返回该 code 表示 Cookie 会话已失效（desc 为「页面已过期」），属确定性失败，不重试
+    static SESSION_EXPIRED_CODE = "8888";
+
     // 通知正文中每个分类最多列出的姓名数，超出部分截断并追加"等"
     static NAME_DISPLAY_LIMIT = 20;
 }
@@ -49,6 +60,12 @@ class StorageService {
 }
 
 // ====================
+// 错误类型
+// ====================
+// 接口返回 code:"8888"（页面已过期）= Cookie 会话失效，需要单独通知并中止
+class CookieExpiredError extends Error {}
+
+// ====================
 // 基础设施
 // ====================
 class HttpClient {
@@ -56,15 +73,23 @@ class HttpClient {
         this.cookie = cookie;
     }
 
-    async fetchPage(page) {
+    fetchPage(page) {
+        return this.postJson(AppConfig.ENDPOINT, `agentCode=ask&page=${page}`);
+    }
+
+    fetchDept(deptId) {
+        return this.postJson(AppConfig.DEPT_ENDPOINT, `agentCode=ask&sortTop=1&deptId=${encodeURIComponent(deptId)}`);
+    }
+
+    postJson(endpoint, body) {
         return $task.fetch({
-            url: AppConfig.API_HOST + AppConfig.ENDPOINT,
+            url: AppConfig.API_HOST + endpoint,
             method: "POST",
             headers: {
                 ...AppConfig.API.headers,
                 Cookie: this.cookie
             },
-            body: `agentCode=ask&page=${page}`
+            body
         });
     }
 }
@@ -86,8 +111,19 @@ class ContactWatch {
                 return;
             }
 
-            // 先完整拉取成功，才允许写入快照，避免把拉取不完整误判为人员离职
-            const current = await this.fetchAll(cookie);
+            // 人员名单与部门归属都成功拉取后，才允许写入快照，
+            // 避免把"拉取不完整"误判为人员离职
+            const persons = await this.fetchAll(cookie);
+            const deptMembers = await this.fetchDeptMembers(cookie);
+
+            // 仅保留归属部门内的账号；无部门归属的虚拟号被排除在监测之外
+            const current = {};
+            Object.keys(persons).forEach(userId => {
+                if (deptMembers.has(userId)) {
+                    current[userId] = persons[userId];
+                }
+            });
+            console.log(`[FILTER] 名单 ${Object.keys(persons).length} 人，其中归属部门 ${Object.keys(current).length} 人`);
 
             const previous = this.loadSnapshot();
             if (previous === null) {
@@ -109,8 +145,14 @@ class ContactWatch {
 
             this.saveSnapshot(current);
         } catch (error) {
-            // 拉取失败/未捕获异常：不更新快照、不发变动通知，仅记录日志
-            console.error(`[ERROR] ${error && error.stack ? error.stack : error}`);
+            if (error instanceof CookieExpiredError) {
+                // Cookie 会话失效：通知用户重新登录；不更新快照、不发变动通知
+                console.log(`[CHECK] Cookie 会话失效: ${error.message}`);
+                $notify("道一云人员变动", "Cookie 失效", "登录已过期，请重新登录道一云以更新 Cookie");
+            } else {
+                // 其它拉取失败/未捕获异常：不更新快照、不发变动通知，仅记录日志
+                console.error(`[ERROR] ${error && error.stack ? error.stack : error}`);
+            }
         } finally {
             $done();
         }
@@ -134,6 +176,10 @@ class ContactWatch {
                 payload = JSON.parse(response.body);
             } catch (error) {
                 throw new Error(`响应解析失败: ${error.message}`);
+            }
+
+            if (String(payload.code) === AppConfig.SESSION_EXPIRED_CODE) {
+                throw new CookieExpiredError(payload.desc || "页面已过期");
             }
 
             if (payload.code !== "0") {
@@ -162,22 +208,110 @@ class ContactWatch {
         return members;
     }
 
+    // 从根部门开始遍历部门树，返回归属成员 userId 集合
+    async fetchDeptMembers(cookie) {
+        const client = this.httpClient || new HttpClient(cookie);
+        const members = new Set();
+        const visited = new Set(); // 防止部门树异常成环导致重复遍历
+        const queue = [""]; // 根调用 deptId 传空串
+
+        while (queue.length > 0) {
+            const deptId = queue.shift();
+            if (visited.has(deptId)) {
+                continue;
+            }
+            visited.add(deptId);
+
+            const data = await this.fetchDeptData(client, deptId);
+            data.userList.forEach(user => {
+                if (user && user.userId) {
+                    members.add(user.userId);
+                }
+            });
+            // 响应中的 deptlist 为该部门的子部门，继续入队递归
+            data.deptlist.forEach(child => {
+                if (child && child.id && !visited.has(child.id)) {
+                    queue.push(child.id);
+                }
+            });
+        }
+
+        console.log(`[DEPT] 归属成员共 ${members.size} 人`);
+        return members;
+    }
+
+    // 单次拉取一个部门；任何失败直接抛出，交由上层终止本轮（不重试）
+    async fetchDeptData(client, deptId) {
+        const response = await client.fetchDept(deptId);
+        if (!response || response.statusCode !== 200) {
+            throw new Error(`HTTP ${response ? response.statusCode : "无响应"}`);
+        }
+
+        let payload;
+        try {
+            payload = JSON.parse(response.body);
+        } catch (error) {
+            throw new Error(`响应解析失败: ${error.message}`);
+        }
+
+        if (String(payload.code) === AppConfig.SESSION_EXPIRED_CODE) {
+            throw new CookieExpiredError(payload.desc || "页面已过期");
+        }
+
+        if (payload.code !== "0") {
+            throw new Error(payload.desc || `业务失败 code=${payload.code}`);
+        }
+
+        const data = payload.data || {};
+        const userList = Array.isArray(data.userList) ? data.userList : [];
+        const deptlist = Array.isArray(data.deptlist) ? data.deptlist : [];
+        const totalRows = Number(data.totalRows);
+        const maxPage = Number(data.maxPage);
+
+        // 完整性防御：列表为空却声称有数据，说明响应不完整，
+        // 不得据此判定该部门无人（否则在职成员会被误判为虚拟号）
+        if (userList.length === 0 && Number.isFinite(totalRows) && totalRows > 0) {
+            throw new Error(`部门 ${deptId || "(root)"} 返回空成员列表但 totalRows=${data.totalRows}`);
+        }
+        // 该接口的翻页能力未经验证；出现多页时安全中止，避免漏抓成员被误判为离职
+        if (Number.isFinite(maxPage) && maxPage > 1) {
+            throw new Error(`部门 ${deptId || "(root)"} 返回 maxPage=${data.maxPage}，不支持翻页，安全中止`);
+        }
+
+        return { userList, deptlist };
+    }
+
+    // 读取当前监测集；无快照、解析失败或旧格式（无版本标记）时返回 null，按首次运行处理
     loadSnapshot() {
         const raw = StorageService.get(AppConfig.STORAGE.snapshot);
         if (!raw) {
             return null;
         }
+
+        let parsed;
         try {
-            const parsed = JSON.parse(raw);
-            return parsed && typeof parsed === "object" ? parsed : null;
+            parsed = JSON.parse(raw);
         } catch (error) {
             console.log(`[SNAPSHOT] 快照解析失败，按首次运行处理: ${error.message}`);
             return null;
         }
+
+        if (!parsed || typeof parsed !== "object" || parsed.v !== AppConfig.SNAPSHOT_VERSION ||
+            !parsed.members || typeof parsed.members !== "object") {
+            // 旧格式（裸 { userId: personName }）不含版本标记：忽略它并重建，
+            // 避免升级后对既有虚拟号误报一次性"离职"
+            console.log("[SNAPSHOT] 快照格式过旧或无效，按首次运行处理");
+            return null;
+        }
+
+        return parsed.members;
     }
 
     saveSnapshot(members) {
-        StorageService.set(AppConfig.STORAGE.snapshot, JSON.stringify(members));
+        StorageService.set(
+            AppConfig.STORAGE.snapshot,
+            JSON.stringify({ v: AppConfig.SNAPSHOT_VERSION, members })
+        );
     }
 
     // 按 userId 集合比对，返回新增/消失人员的姓名数组
