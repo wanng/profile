@@ -3,6 +3,7 @@
  *
  * 定时拉取全公司人员名单与部门归属，以手机号为主键与上一份快照比对，
  * 检出新增（入职）/ 消失（离职）并推送通知；无变动则静默。
+ * 检出的变动同时追加到持久化记录，供事后查阅。
  * 不属于任何部门的账号（虚拟号）被排除在监测之外。
  ********************/
 
@@ -21,12 +22,16 @@ class AppConfig {
     // 快照格式版本；升级后旧格式快照按首次运行处理
     static SNAPSHOT_VERSION = 3;
 
+    // 变动记录格式版本；版本不符时视为空记录重建
+    static CHANGELOG_VERSION = 1;
+
     static STORAGE = Object.freeze({
         cookie: {
             key: "CookieDo1",
             validator: c => typeof c === "string" && c.includes("sessionToken")
         },
-        snapshot: "Do1ContactSnapshot"
+        snapshot: "Do1ContactSnapshot",
+        changelog: "Do1ContactChangelog"
     });
 
     static API = Object.freeze({
@@ -137,9 +142,10 @@ class ContactWatch {
             }
 
             const { added, removed } = ContactWatch.diff(previous, current);
+            const hasChanges = added.length > 0 || removed.length > 0;
             console.log(`[DIFF] 新增 ${added.length} 人，减少 ${removed.length} 人`);
 
-            if (added.length > 0 || removed.length > 0) {
+            if (hasChanges) {
                 $notify(
                     "道一云人员变动",
                     `新增 ${added.length} / 减少 ${removed.length}`,
@@ -148,6 +154,12 @@ class ContactWatch {
             }
 
             this.saveSnapshot(current);
+
+            // 变动记录在快照写入成功之后追加：快照写入失败时本轮不留记录，
+            // 避免下一轮把同一批变动重复记录
+            if (hasChanges) {
+                this.appendChangelog(added, removed);
+            }
         } catch (error) {
             if (error instanceof CookieExpiredError) {
                 // Cookie 会话失效：通知用户重新登录；不更新快照、不发变动通知
@@ -322,6 +334,49 @@ class ContactWatch {
         );
     }
 
+    // 读取变动记录；缺失、解析失败、版本号非当前值或结构非法时返回空数组，从空开始追加
+    loadChangelog() {
+        const raw = StorageService.get(AppConfig.STORAGE.changelog);
+        if (!raw) {
+            return [];
+        }
+
+        let parsed;
+        try {
+            parsed = JSON.parse(raw);
+        } catch (error) {
+            console.log(`[CHANGELOG] 变动记录解析失败，从空重建: ${error.message}`);
+            return [];
+        }
+
+        if (!parsed || typeof parsed !== "object" || parsed.v !== AppConfig.CHANGELOG_VERSION ||
+            !Array.isArray(parsed.entries)) {
+            console.log("[CHANGELOG] 变动记录格式无效，从空重建");
+            return [];
+        }
+
+        return parsed.entries;
+    }
+
+    // 把本轮变动作为一条记录追加到持久化记录；记录为完整明细，不参与比对与通知渲染。
+    // 写入失败只记录日志，不影响本轮快照更新与 $done 正常结束
+    appendChangelog(added, removed) {
+        try {
+            const entries = this.loadChangelog();
+            entries.push({
+                time: new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }),
+                added: added.map(ContactWatch.toRecord),
+                removed: removed.map(ContactWatch.toRecord)
+            });
+            StorageService.set(
+                AppConfig.STORAGE.changelog,
+                JSON.stringify({ v: AppConfig.CHANGELOG_VERSION, entries })
+            );
+        } catch (error) {
+            console.error(`[CHANGELOG] 变动记录写入失败: ${error && error.stack ? error.stack : error}`);
+        }
+    }
+
     // 以手机号为身份主键；手机号缺失时回退 userId，避免无法识别
     static identityKey(person) {
         return person.mobile ? `m:${person.mobile}` : `u:${person.userId}`;
@@ -332,6 +387,11 @@ class ContactWatch {
             return "";
         }
         return String(mobile).trim();
+    }
+
+    // 变动记录中的明细条目：仅保留姓名与手机号
+    static toRecord(person) {
+        return { personName: person.personName, mobile: person.mobile };
     }
 
     // 按身份键求集合差：新增 = 当前有、上次无；消失 = 上次有、当前无

@@ -76,6 +76,11 @@ function snapshotV3(members) {
     return JSON.stringify({ v: 3, members });
 }
 
+// 变动记录（v1）原始字符串
+function changelogV1(entries) {
+    return JSON.stringify({ v: 1, entries });
+}
+
 // 旧格式（v2）快照原始字符串，用于迁移用例
 function snapshotV2(members) {
     return JSON.stringify({ v: 2, members });
@@ -112,14 +117,19 @@ function collectPersonIdMap(pages) {
  * @param {object} opts
  * @param {string|null} opts.cookie      CookieDo1 的值，null 表示不写入
  * @param {string|null} opts.snapshot    Do1ContactSnapshot 的值，null/undefined 表示无快照
+ * @param {string|null} opts.changelog   Do1ContactChangelog 的值，null/undefined 表示无记录
+ * @param {object|null} opts.store       复用同一份存储的引用（用于连续多轮），null 表示新建
  * @param {Array} opts.pages             人员接口按页序号（1 起）给出响应：对象或 (options)=>响应
  * @param {object|null} opts.depts       部门接口按 deptId 给出响应（根 deptId 为 ""）：对象或 (options)=>响应
+ * @param {Array<string>} opts.failSetKeys  写入这些键时抛异常，用于模拟存储故障
  * @returns 可用于断言的句柄
  */
-function createRuntime({ cookie = "sessionToken=test-token", snapshot = null, pages = [], depts = null } = {}) {
-    const store = {};
-    if (cookie !== null) store["CookieDo1"] = cookie;
-    if (snapshot !== null && snapshot !== undefined) store["Do1ContactSnapshot"] = snapshot;
+function createRuntime({ cookie = "sessionToken=test-token", snapshot = null, changelog = null, store = null, pages = [], depts = null, failSetKeys = [] } = {}) {
+    const storeRef = store || {};
+    if (cookie !== null) storeRef["CookieDo1"] = cookie;
+    if (snapshot !== null && snapshot !== undefined) storeRef["Do1ContactSnapshot"] = snapshot;
+    if (changelog !== null && changelog !== undefined) storeRef["Do1ContactChangelog"] = changelog;
+    const failKeys = new Set(failSetKeys);
 
     const notifications = [];
     const requests = [];
@@ -135,9 +145,12 @@ function createRuntime({ cookie = "sessionToken=test-token", snapshot = null, pa
     };
 
     global.$prefs = {
-        valueForKey: key => (key in store ? store[key] : null),
+        valueForKey: key => (key in storeRef ? storeRef[key] : null),
         setValueForKey: (value, key) => {
-            store[key] = value;
+            if (failKeys.has(key)) {
+                throw new Error(`测试注入写入失败: ${key}`);
+            }
+            storeRef[key] = value;
         }
     };
 
@@ -174,7 +187,7 @@ function createRuntime({ cookie = "sessionToken=test-token", snapshot = null, pa
     const isDeptRequest = options => /getChildDeptAndPerson\.do/.test(options.url);
 
     return {
-        store,
+        store: storeRef,
         notifications,
         requests,
         get personRequests() {
@@ -188,12 +201,21 @@ function createRuntime({ cookie = "sessionToken=test-token", snapshot = null, pa
         },
         // 返回快照中的 members 映射（无快照时为 null）
         readSnapshot() {
-            const raw = store["Do1ContactSnapshot"];
+            const raw = storeRef["Do1ContactSnapshot"];
             if (raw === undefined) return null;
             return JSON.parse(raw).members;
         },
         readRawSnapshot() {
-            return store["Do1ContactSnapshot"];
+            return storeRef["Do1ContactSnapshot"];
+        },
+        // 返回变动记录的 entries（无记录时为 null）
+        readChangelog() {
+            const raw = storeRef["Do1ContactChangelog"];
+            if (raw === undefined) return null;
+            return JSON.parse(raw).entries;
+        },
+        readRawChangelog() {
+            return storeRef["Do1ContactChangelog"];
         }
     };
 }
@@ -755,6 +777,246 @@ test("v2 旧快照：按首次运行重建，不发通知", async () => {
         "m:13800000002": rec("李四", "13800000002")
     }, "应重建为当前监测集");
     assert.strictEqual(JSON.parse(runtime.readRawSnapshot()).v, 3, "重写后的快照应为 v3");
+});
+
+// ---------- 变动记录持久化 用例 ----------
+
+test("检出变动：追加完整明细记录，不受通知截断影响", async () => {
+    // 构造超过 NAME_DISPLAY_LIMIT(20) 的增/减规模：通知正文会被截断，记录必须完整
+    const previousMembers = {};
+    const currentPersons = [];
+    for (let i = 0; i < 25; i++) {
+        const oldMobile = `13800000${String(i).padStart(3, "0")}`;
+        previousMembers[`m:${oldMobile}`] = rec(`离职${i}`, oldMobile);
+        const newMobile = `13900000${String(i).padStart(3, "0")}`;
+        currentPersons.push(person(`new${i}`, `入职${i}`, newMobile));
+    }
+
+    const runtime = createRuntime({
+        snapshot: snapshotV3(previousMembers),
+        pages: [pageResponse(currentPersons, { maxPage: 1 })]
+    });
+    const { ContactWatch } = freshRequire();
+    await new ContactWatch().run();
+
+    // 通知正常发出且正文被截断
+    assert.strictEqual(runtime.notifications.length, 1);
+    assert.strictEqual(runtime.notifications[0].subtitle, "新增 25 / 减少 25");
+    assert.ok(runtime.notifications[0].body.includes("等"), "通知正文应截断并追加等");
+
+    const raw = JSON.parse(runtime.readRawChangelog());
+    assert.strictEqual(raw.v, 1, "记录应带 v1 版本标记");
+    const entries = raw.entries;
+    assert.strictEqual(entries.length, 1, "检出变动应追加一条记录");
+    assert.strictEqual(typeof entries[0].time, "string", "time 应为字符串");
+    assert.ok(entries[0].time.length > 0, "time 应为非空字符串");
+    assert.strictEqual(entries[0].added.length, 25, "记录内新增应为全量，不受截断影响");
+    assert.strictEqual(entries[0].removed.length, 25, "记录内减少应为全量，不受截断影响");
+    assert.deepStrictEqual(entries[0].added[0], rec("入职0", "13900000000"));
+    assert.deepStrictEqual(entries[0].removed[0], rec("离职0", "13800000000"));
+});
+
+test("无变动：不写变动记录", async () => {
+    const runtime = createRuntime({
+        snapshot: snapshotV3({
+            "m:13800000001": rec("张三", "13800000001"),
+            "m:13800000002": rec("李四", "13800000002")
+        }),
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })]
+    });
+    const { ContactWatch } = freshRequire();
+    await new ContactWatch().run();
+
+    assert.strictEqual(runtime.notifications.length, 0);
+    assert.strictEqual(runtime.store["Do1ContactChangelog"], undefined, "无变动不应写记录");
+});
+
+test("首次运行建基准：不写变动记录", async () => {
+    const runtime = createRuntime({
+        snapshot: null,
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })]
+    });
+    const { ContactWatch } = freshRequire();
+    await new ContactWatch().run();
+
+    assert.strictEqual(runtime.notifications.length, 0);
+    assert.strictEqual(runtime.store["Do1ContactChangelog"], undefined, "首次建基准不应写记录");
+});
+
+test("Cookie 失效（8888）：不写记录，且已有记录保持不变", async () => {
+    const existing = changelogV1([
+        { time: "2026-10-05 09:00:00", added: [rec("旧人", "13700000000")], removed: [] }
+    ]);
+    const runtime = createRuntime({
+        snapshot: snapshotV3({ "m:13800000001": rec("张三", "13800000001") }),
+        changelog: existing,
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })],
+        depts: { "": deptError("8888", "页面已过期") }
+    });
+    const { ContactWatch } = freshRequire();
+    await new ContactWatch().run();
+
+    assert.strictEqual(runtime.notifications[0].subtitle, "Cookie 失效");
+    assert.strictEqual(runtime.store["Do1ContactChangelog"], existing, "已有记录不应被破坏");
+});
+
+test("拉取失败：不写记录，且已有记录保持不变", async () => {
+    const existing = changelogV1([
+        { time: "2026-10-05 09:00:00", added: [rec("旧人", "13700000000")], removed: [] }
+    ]);
+    const runtime = createRuntime({
+        snapshot: snapshotV3({ "m:13800000001": rec("张三", "13800000001") }),
+        changelog: existing,
+        pages: [
+            pageResponse([
+                person("u1", "张三", "13800000001"),
+                person("u2", "李四", "13800000002")
+            ], { maxPage: 2, currPage: 1 }),
+            { statusCode: 500, body: "server error" }
+        ]
+    });
+    const { ContactWatch } = freshRequire();
+    await new ContactWatch().run();
+
+    assert.strictEqual(runtime.notifications.length, 0, "拉取失败不应发通知");
+    assert.strictEqual(runtime.store["Do1ContactChangelog"], existing, "已有记录不应被破坏");
+});
+
+test("连续两轮各检出一次变动：记录累积且顺序正确", async () => {
+    const store = {};
+    const { ContactWatch } = freshRequire();
+
+    // 第一轮：张三 -> 新增李四
+    const round1 = createRuntime({
+        store,
+        snapshot: snapshotV3({ "m:13800000001": rec("张三", "13800000001") }),
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })]
+    });
+    await new ContactWatch().run();
+
+    // 第二轮：再新增王五（不覆盖已落盘的快照与记录）
+    const round2 = createRuntime({
+        store,
+        snapshot: null,
+        changelog: null,
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002"),
+            person("u3", "王五", "13800000003")
+        ], { maxPage: 1 })]
+    });
+    await new ContactWatch().run();
+
+    const entries = round2.readChangelog();
+    assert.strictEqual(entries.length, 2, "两轮变动应累积为两条记录");
+    assert.strictEqual(entries[0].added[0].personName, "李四", "第一条记录仍在且对应第一轮");
+    assert.strictEqual(entries[1].added[0].personName, "王五", "第二条记录对应第二轮");
+    assert.strictEqual(round1.readChangelog().length, 2, "同一份存储被持续追加");
+});
+
+test("变动记录非法 JSON：从空重建，不抛错", async () => {
+    const runtime = createRuntime({
+        snapshot: snapshotV3({ "m:13800000001": rec("张三", "13800000001") }),
+        changelog: "{not valid json",
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })]
+    });
+    const { ContactWatch } = freshRequire();
+    await new ContactWatch().run();
+
+    assert.strictEqual(runtime.doneCount, 1, "解析失败不应抛错，仍正常结束");
+    const entries = runtime.readChangelog();
+    assert.strictEqual(entries.length, 1, "应从空重建后追加本轮记录");
+    assert.strictEqual(entries[0].added[0].personName, "李四");
+});
+
+test("变动记录版本号非 1：从空重建，不抛错", async () => {
+    const runtime = createRuntime({
+        snapshot: snapshotV3({ "m:13800000001": rec("张三", "13800000001") }),
+        changelog: changelogV1([{ time: "2026-01-01 00:00:00", added: [rec("旧人", "13700000000")], removed: [] }])
+            .replace('"v":1', '"v":2'),
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })]
+    });
+    const { ContactWatch } = freshRequire();
+    await new ContactWatch().run();
+
+    assert.strictEqual(runtime.doneCount, 1, "版本不符不应抛错，仍正常结束");
+    const entries = runtime.readChangelog();
+    assert.strictEqual(entries.length, 1, "应从空重建，丢弃旧版本记录");
+    assert.strictEqual(entries[0].added[0].personName, "李四");
+});
+
+test("变动记录结构非法：从空重建，不抛错", async () => {
+    const runtime = createRuntime({
+        snapshot: snapshotV3({ "m:13800000001": rec("张三", "13800000001") }),
+        changelog: JSON.stringify({ v: 1, entries: "not-an-array" }),
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })]
+    });
+    const { ContactWatch } = freshRequire();
+    await new ContactWatch().run();
+
+    assert.strictEqual(runtime.doneCount, 1, "结构非法不应抛错，仍正常结束");
+    const entries = runtime.readChangelog();
+    assert.strictEqual(entries.length, 1, "应从空重建后追加本轮记录");
+});
+
+test("追加记录写入异常：通知与快照仍正常，$done 正常结束", async () => {
+    const runtime = createRuntime({
+        snapshot: snapshotV3({ "m:13800000001": rec("张三", "13800000001") }),
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })],
+        failSetKeys: ["Do1ContactChangelog"]
+    });
+    const { ContactWatch } = freshRequire();
+    await new ContactWatch().run();
+
+    assert.strictEqual(runtime.notifications.length, 1, "通知应照常发出");
+    assert.deepStrictEqual(runtime.readSnapshot(), {
+        "m:13800000001": rec("张三", "13800000001"),
+        "m:13800000002": rec("李四", "13800000002")
+    }, "记录写入失败不应影响本轮快照更新");
+    assert.strictEqual(runtime.store["Do1ContactChangelog"], undefined, "写入失败不落盘");
+    assert.strictEqual(runtime.doneCount, 1, "$done 应正常结束");
+});
+
+test("快照写入异常：不追加记录（追加在快照之后）", async () => {
+    const runtime = createRuntime({
+        snapshot: snapshotV3({ "m:13800000001": rec("张三", "13800000001") }),
+        pages: [pageResponse([
+            person("u1", "张三", "13800000001"),
+            person("u2", "李四", "13800000002")
+        ], { maxPage: 1 })],
+        failSetKeys: ["Do1ContactSnapshot"]
+    });
+    const { ContactWatch } = freshRequire();
+    await new ContactWatch().run();
+
+    assert.strictEqual(runtime.notifications.length, 1, "通知已发出");
+    assert.strictEqual(runtime.store["Do1ContactChangelog"], undefined,
+        "快照写入失败时本轮不留记录，避免下轮重复上报");
+    assert.strictEqual(runtime.doneCount, 1);
 });
 
 runAll();
