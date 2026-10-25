@@ -28,6 +28,18 @@ const EXPECTED_PLACES = [
     }
 ];
 
+// 期望的考勤规则：签到与签退各自的 id 与 ruleId 成对
+const EXPECTED_RULES = {
+    checkIn: {
+        id: "E446B871-903A-4797-972B-783E28A688F4",
+        ruleId: "29E57294-E079-4B37-A8B8-FBAA2B2C9FD1"
+    },
+    checkOut: {
+        id: "71A48E9D-7E11-432E-BBD5-27B0279BD822",
+        ruleId: "29E57294-E079-4B37-A8B8-FBAA2B2C9FD1"
+    }
+};
+
 // ---------- 运行时桩 ----------
 
 /**
@@ -179,13 +191,40 @@ test("两次随机命中分别落在两条不同记录", async () => {
     assert.notDeepStrictEqual(pick(second.runtime), pick(first.runtime), "两次应命中不同地点");
 });
 
-test("请求体保留 id/ruleId 与 FIXED_PARAMS 字段", async () => {
-    const { mod, runtime } = await runOnce({ random: 0 });
-    const body = signBody(runtime.requests);
-    const checkInRule = mod.AppConfig.CHECK_RULES.checkIn;
+test("配置：CHECK_RULES 四个常量与 HAR 一致", async () => {
+    const { mod } = await runOnce({ random: 0 });
+    const rules = mod.AppConfig.CHECK_RULES;
 
-    assert.strictEqual(parseParam(body, "id"), checkInRule.id);
-    assert.strictEqual(parseParam(body, "ruleId"), checkInRule.ruleId);
+    assert.strictEqual(rules.checkIn.id, EXPECTED_RULES.checkIn.id, "签到 id 应一致");
+    assert.strictEqual(rules.checkIn.ruleId, EXPECTED_RULES.checkIn.ruleId, "签到 ruleId 应一致");
+    assert.strictEqual(rules.checkOut.id, EXPECTED_RULES.checkOut.id, "签退 id 应一致");
+    assert.strictEqual(rules.checkOut.ruleId, EXPECTED_RULES.checkOut.ruleId, "签退 ruleId 应一致");
+});
+
+test("签到时段：请求体使用签到那组 id/ruleId", async () => {
+    const { runtime } = await runOnce({ random: 0, hour: 8 });
+    const body = signBody(runtime.requests);
+
+    assert.ok(body, "应发出签到请求");
+    assert.strictEqual(parseParam(body, "id"), EXPECTED_RULES.checkIn.id);
+    assert.strictEqual(parseParam(body, "ruleId"), EXPECTED_RULES.checkIn.ruleId);
+});
+
+test("签退时段：请求体使用签退那组 id/ruleId", async () => {
+    const { runtime } = await runOnce({ random: 0, hour: 19 });
+    const body = signBody(runtime.requests);
+
+    assert.ok(body, "应发出签退请求");
+    assert.strictEqual(parseParam(body, "id"), EXPECTED_RULES.checkOut.id);
+    assert.strictEqual(parseParam(body, "ruleId"), EXPECTED_RULES.checkOut.ruleId);
+});
+
+test("请求体保留 id/ruleId 与 FIXED_PARAMS 字段", async () => {
+    const { runtime } = await runOnce({ random: 0 });
+    const body = signBody(runtime.requests);
+
+    assert.strictEqual(parseParam(body, "id"), EXPECTED_RULES.checkIn.id);
+    assert.strictEqual(parseParam(body, "ruleId"), EXPECTED_RULES.checkIn.ruleId);
     assert.strictEqual(parseParam(body, "againsignin"), "0");
     assert.strictEqual(parseParam(body, "mapType"), "1");
     assert.strictEqual(parseParam(body, "isMust"), "false");

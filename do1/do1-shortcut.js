@@ -35,14 +35,14 @@ class AppConfig {
 
     static CHECK_RULES = Object.freeze({
         checkIn: {
-            id: "AEE21D66-E6F8-4E9E-BB69-B369054CF3D3", // 修正签到ID
+            id: "E446B871-903A-4797-972B-783E28A688F4", // 签到地点ID
             timeRange: [7.0, 9.5],
-            ruleId: "E2EBCF7D-1BF3-4420-B9C2-97102C1BA5FC" // 新增固定规则ID
+            ruleId: "29E57294-E079-4B37-A8B8-FBAA2B2C9FD1" // 考勤规则ID
         },
         checkOut: {
-            id: "8814FC84-EBDE-43C0-9A81-E0A18BD093A3",
+            id: "71A48E9D-7E11-432E-BBD5-27B0279BD822", // 签退地点ID
             timeRange: [18.5, 24.0],
-            ruleId: "E2EBCF7D-1BF3-4420-B9C2-97102C1BA5FC" // 新增固定规则ID
+            ruleId: "29E57294-E079-4B37-A8B8-FBAA2B2C9FD1" // 考勤规则ID
         }
     });
 
