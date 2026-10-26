@@ -18,20 +18,11 @@ class AppConfig {
         probability: "ExecProbabilityDo1"
     });
 
-    // 考勤地点集合，每次签到从其中随机取一条
+    // 考勤地点，取自真实签到抓包
     static LOCATION = Object.freeze({
-        places: [
-            {
-                longitude: 113.8072478424762,
-                latitude: 22.69593080913441,
-                address: "福海街道桥头社区宝安大道6303号"
-            },
-            {
-                longitude: 113.8071587108701,
-                latitude: 22.69577676230792,
-                address: "福海街道桥南新区17栋B号楼整三层"
-            }
-        ]
+        longitude: 113.812222,
+        latitude: 22.692869,
+        address: "广东省深圳市宝安区育桥路"
     });
 
     static CHECK_RULES = Object.freeze({
@@ -250,8 +241,6 @@ class AttendanceService {
 
     async submitSign(type) {
         const rule = AppConfig.CHECK_RULES[type];
-        // 随机取一条地点记录，经纬度与地址必须来自同一条
-        const place = AppConfig.LOCATION.places[Math.floor(Math.random() * AppConfig.LOCATION.places.length)];
         console.log(`[SIGN] 提交签到请求，类型: ${type}, 规则ID: ${rule.id}`);
         
         // 构建符合要求的body参数
@@ -259,9 +248,9 @@ class AttendanceService {
             ...AppConfig.FIXED_PARAMS.common,
             id: rule.id,
             ruleId: rule.ruleId,
-            longitude: place.longitude,
-            latitude: place.latitude,
-            address: place.address
+            longitude: AppConfig.LOCATION.longitude,
+            latitude: AppConfig.LOCATION.latitude,
+            address: AppConfig.LOCATION.address
         };
 
         const result = await this.httpClient.post(

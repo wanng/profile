@@ -5,8 +5,8 @@
  * 不依赖任何外部框架，仅使用 Node 内置 assert。
  *
  * 通过注入 $task / $prefs / $notify / $done / $environment 全局桩，
- * 并固定 Math.random 与当前时间，驱动脚本顶层自动启动的任务流程走到 submitSign，
- * 再从 $task.fetch 收到的请求体中校验地点选取行为。
+ * 并固定当前时间，驱动脚本顶层自动启动的任务流程走到 submitSign，
+ * 再从 $task.fetch 收到的请求体中校验提交内容。
  ********************/
 
 const assert = require("assert");
@@ -14,19 +14,12 @@ const path = require("path");
 
 const SCRIPT_PATH = path.join(__dirname, "do1-task.js");
 
-// 期望的两条地点记录（坐标与地址必须成对一致）
-const EXPECTED_PLACES = [
-    {
-        longitude: 113.8072478424762,
-        latitude: 22.69593080913441,
-        address: "福海街道桥头社区宝安大道6303号"
-    },
-    {
-        longitude: 113.8071587108701,
-        latitude: 22.69577676230792,
-        address: "福海街道桥南新区17栋B号楼整三层"
-    }
-];
+// 期望的考勤地点：由真实签到抓包得到的单一地点
+const EXPECTED_LOCATION = {
+    longitude: 113.812222,
+    latitude: 22.692869,
+    address: "广东省深圳市宝安区育桥路"
+};
 
 // 期望的考勤规则：签到与签退各自的 id 与 ruleId 成对
 const EXPECTED_RULES = {
@@ -45,11 +38,10 @@ const EXPECTED_RULES = {
 /**
  * 构建一次执行的运行环境。
  * @param {object} opts
- * @param {number} opts.random  固定的 Math.random 返回值（决定随机选中的地点下标）
  * @param {number} opts.hour    固定的当前小时（用于命中签到时间段）
  * @returns 句柄：done 为 $done 被调用后兑现的 Promise
  */
-function createRuntime({ random, hour = 8 } = {}) {
+function createRuntime({ hour = 8 } = {}) {
     const storeRef = { CookieDo1: "sessionToken=test-token" };
     const requests = [];
     let resolveDone;
@@ -61,7 +53,7 @@ function createRuntime({ random, hour = 8 } = {}) {
     };
     global.$notify = () => {};
     global.$done = () => resolveDone();
-    // 关闭概率控制，使随机数只用于地点选取
+    // 关闭概率控制，使流程只受时间与网络响应决定
     global.$environment = { sourcePath: "qx-task#probability=off" };
     global.$task = {
         fetch: async options => {
@@ -72,9 +64,6 @@ function createRuntime({ random, hour = 8 } = {}) {
             return { statusCode: 200, body: JSON.stringify({ code: "0", desc: "操作成功" }) };
         }
     };
-
-    const realRandom = Math.random;
-    Math.random = () => random;
 
     const RealDate = Date;
     class MockDate extends RealDate {
@@ -94,7 +83,6 @@ function createRuntime({ random, hour = 8 } = {}) {
         requests,
         store: storeRef,
         restore() {
-            Math.random = realRandom;
             global.Date = RealDate;
         }
     };
@@ -106,8 +94,8 @@ function freshRequire() {
     return require(SCRIPT_PATH);
 }
 
-async function runOnce({ random, hour = 8 }) {
-    const runtime = createRuntime({ random, hour });
+async function runOnce({ hour = 8 } = {}) {
+    const runtime = createRuntime({ hour });
     const mod = freshRequire();
     await runtime.done;
     runtime.restore();
@@ -154,50 +142,38 @@ async function runAll() {
 
 // ---------- 用例 ----------
 
-test("配置：LOCATION 承载两条地点记录，坐标与地址成对匹配", async () => {
-    const { mod } = await runOnce({ random: 0 });
+test("配置：LOCATION 为抓包得到的单一地点", async () => {
+    const { mod } = await runOnce();
 
     assert.deepStrictEqual(
-        mod.AppConfig.LOCATION.places,
-        EXPECTED_PLACES,
-        "地点集合应为给定的两条记录，坐标与地址成对一致"
+        mod.AppConfig.LOCATION,
+        EXPECTED_LOCATION,
+        "LOCATION 应只承载抓包地点，经纬度为数字"
     );
 });
 
-test("随机命中下标 0：请求体使用第一条地点记录", async () => {
-    const { runtime } = await runOnce({ random: 0 });
+test("签到时段：请求体地点字段等于抓包地点", async () => {
+    const { runtime } = await runOnce({ hour: 8 });
     const body = signBody(runtime.requests);
 
     assert.ok(body, "应发出签到请求");
-    assert.strictEqual(parseParam(body, "longitude"), String(EXPECTED_PLACES[0].longitude));
-    assert.strictEqual(parseParam(body, "latitude"), String(EXPECTED_PLACES[0].latitude));
-    assert.strictEqual(parseParam(body, "address"), EXPECTED_PLACES[0].address);
+    assert.strictEqual(parseParam(body, "longitude"), String(EXPECTED_LOCATION.longitude));
+    assert.strictEqual(parseParam(body, "latitude"), String(EXPECTED_LOCATION.latitude));
+    assert.strictEqual(parseParam(body, "address"), EXPECTED_LOCATION.address);
 });
 
-test("随机命中下标 1：请求体使用第二条地点记录", async () => {
-    const { runtime } = await runOnce({ random: 0.6 });
+test("签退时段：请求体地点字段等于抓包地点", async () => {
+    const { runtime } = await runOnce({ hour: 19 });
     const body = signBody(runtime.requests);
 
-    assert.ok(body, "应发出签到请求");
-    assert.strictEqual(parseParam(body, "longitude"), String(EXPECTED_PLACES[1].longitude));
-    assert.strictEqual(parseParam(body, "latitude"), String(EXPECTED_PLACES[1].latitude));
-    assert.strictEqual(parseParam(body, "address"), EXPECTED_PLACES[1].address);
-});
-
-test("两次随机命中分别落在两条不同记录", async () => {
-    const first = await runOnce({ random: 0 });
-    const second = await runOnce({ random: 0.6 });
-
-    const pick = runtime => {
-        const body = signBody(runtime.requests);
-        return [parseParam(body, "longitude"), parseParam(body, "latitude"), parseParam(body, "address")];
-    };
-
-    assert.notDeepStrictEqual(pick(second.runtime), pick(first.runtime), "两次应命中不同地点");
+    assert.ok(body, "应发出签退请求");
+    assert.strictEqual(parseParam(body, "longitude"), String(EXPECTED_LOCATION.longitude));
+    assert.strictEqual(parseParam(body, "latitude"), String(EXPECTED_LOCATION.latitude));
+    assert.strictEqual(parseParam(body, "address"), EXPECTED_LOCATION.address);
 });
 
 test("配置：CHECK_RULES 四个常量与 HAR 一致", async () => {
-    const { mod } = await runOnce({ random: 0 });
+    const { mod } = await runOnce();
     const rules = mod.AppConfig.CHECK_RULES;
 
     assert.strictEqual(rules.checkIn.id, EXPECTED_RULES.checkIn.id, "签到 id 应一致");
@@ -207,7 +183,7 @@ test("配置：CHECK_RULES 四个常量与 HAR 一致", async () => {
 });
 
 test("签到时段：请求体使用签到那组 id/ruleId", async () => {
-    const { runtime } = await runOnce({ random: 0, hour: 8 });
+    const { runtime } = await runOnce({ hour: 8 });
     const body = signBody(runtime.requests);
 
     assert.ok(body, "应发出签到请求");
@@ -216,7 +192,7 @@ test("签到时段：请求体使用签到那组 id/ruleId", async () => {
 });
 
 test("签退时段：请求体使用签退那组 id/ruleId", async () => {
-    const { runtime } = await runOnce({ random: 0, hour: 19 });
+    const { runtime } = await runOnce({ hour: 19 });
     const body = signBody(runtime.requests);
 
     assert.ok(body, "应发出签退请求");
@@ -225,7 +201,7 @@ test("签退时段：请求体使用签退那组 id/ruleId", async () => {
 });
 
 test("请求体保留 id/ruleId 与 FIXED_PARAMS 字段", async () => {
-    const { runtime } = await runOnce({ random: 0 });
+    const { runtime } = await runOnce();
     const body = signBody(runtime.requests);
 
     assert.strictEqual(parseParam(body, "id"), EXPECTED_RULES.checkIn.id);
